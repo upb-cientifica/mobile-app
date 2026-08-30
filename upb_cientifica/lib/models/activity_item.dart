@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/utils/date_utils.dart';
+
 class ActivityItem {
   const ActivityItem({
     required this.icon,
@@ -14,45 +16,26 @@ class ActivityItem {
   final String label;
   final String time;
   final String sub;
-}
 
-const List<ActivityItem> mockActivity = [
-  ActivityItem(
-    icon: Icons.upload_outlined,
-    color: Color(0xFF34A853),
-    label: 'simulacion_climatica.py subido',
-    time: 'hace 2 min',
-    sub: 'Proyecto Clima 2025',
-  ),
-  ActivityItem(
-    icon: Icons.memory,
-    color: Color(0xFF1A73E8),
-    label: 'Job MPI completado',
-    time: 'hace 15 min',
-    sub: 'modelo_molecular — 48 procesos',
-  ),
-  ActivityItem(
-    icon: Icons.share_outlined,
-    color: Color(0xFF9C27B0),
-    label: 'datos_sensores.csv compartido',
-    time: 'hace 1 h',
-    sub: 'Con grupo Bioinformática',
-  ),
-  ActivityItem(
-    icon: Icons.notifications_none,
-    color: Color(0xFFFBBC04),
-    label: 'Cuota al 85% de capacidad',
-    time: 'hace 3 h',
-    sub: 'Almacenamiento · Advertencia',
-  ),
-  ActivityItem(
-    icon: Icons.arrow_upward,
-    color: Color(0xFFEA4335),
-    label: 'resultados_genomica.zip procesado',
-    time: 'Ayer',
-    sub: 'Job completado · 2.1 GB',
-  ),
-];
+  /// Construye desde `actividadReciente` del endpoint `/dashboard`.
+  factory ActivityItem.fromApi(Map<String, dynamic> j) {
+    final tipo = (j['tipo'] as String? ?? '').toLowerCase();
+    final (IconData icon, Color color) = switch (tipo) {
+      'subida' => (Icons.upload_outlined, const Color(0xFF34A853)),
+      'trabajo' => (Icons.memory, const Color(0xFF1A73E8)),
+      'compartido' => (Icons.share_outlined, const Color(0xFF9C27B0)),
+      'sync' => (Icons.sync, const Color(0xFF00897B)),
+      _ => (Icons.notifications_none, const Color(0xFFFBBC04)),
+    };
+    return ActivityItem(
+      icon: icon,
+      color: color,
+      label: j['titulo'] as String? ?? '',
+      sub: j['detalle'] as String? ?? '',
+      time: relativeSpanish(j['fecha'] as String?),
+    );
+  }
+}
 
 class QuickLinkData {
   const QuickLinkData({

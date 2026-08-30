@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/alerts_controller.dart';
+import '../../controllers/auth_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/alert_item.dart';
+import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
 /// Centro de alertas y notificaciones, equivalente a
@@ -15,7 +17,7 @@ class AlertsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => AlertsController(),
+      create: (ctx) => AlertsController(ctx.read<AuthController>().api),
       child: const _AlertsView(),
     );
   }
@@ -49,14 +51,28 @@ class _AlertsView extends StatelessWidget {
           ),
         UnderlineTabs(options: alertFilters, selected: controller.filter, onSelected: controller.setFilter),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              for (final alert in controller.filteredAlerts) ...[
-                _AlertTile(alert: alert),
-                const SizedBox(height: 6),
+          child: AsyncView(
+            loading: controller.loading,
+            error: controller.error,
+            loadedOnce: controller.loadedOnce,
+            onRetry: controller.load,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (controller.filteredAlerts.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 48),
+                    child: Center(child: Text('Sin alertas', style: TextStyle(color: AppColors.textSecondary))),
+                  ),
+                for (final alert in controller.filteredAlerts) ...[
+                  GestureDetector(
+                    onTap: alert.read ? null : () => controller.markRead(alert.id),
+                    child: _AlertTile(alert: alert),
+                  ),
+                  const SizedBox(height: 6),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ],

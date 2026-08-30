@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
 import '../../controllers/hpc_jobs_controller.dart';
 import '../../core/navigation/navigation_controller.dart';
 import '../../core/navigation/screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/hpc_job.dart';
+import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
 class _SummaryChip {
@@ -17,13 +19,6 @@ class _SummaryChip {
   final Color color;
 }
 
-const List<_SummaryChip> _summary = [
-  _SummaryChip('Ejecutando', 2, AppColors.blue),
-  _SummaryChip('En cola', 1, AppColors.warningDark),
-  _SummaryChip('Completados', 2, AppColors.success),
-  _SummaryChip('Fallidos', 1, AppColors.error),
-];
-
 /// Lista de trabajos HPC/MPI, equivalente a screens/HPCJobsScreen.tsx.
 class HpcJobsScreen extends StatelessWidget {
   const HpcJobsScreen({super.key});
@@ -31,7 +26,7 @@ class HpcJobsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => HpcJobsController(),
+      create: (ctx) => HpcJobsController(ctx.read<AuthController>().api),
       child: const _HpcJobsView(),
     );
   }
@@ -44,6 +39,12 @@ class _HpcJobsView extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<HpcJobsController>();
     final nav = context.read<NavigationController>();
+    final summary = [
+      _SummaryChip('Ejecutando', controller.ejecutando, AppColors.blue),
+      _SummaryChip('En cola', controller.enCola, AppColors.warningDark),
+      _SummaryChip('Completados', controller.completados, AppColors.success),
+      _SummaryChip('Fallidos', controller.fallidos, AppColors.error),
+    ];
 
     return Column(
       children: [
@@ -54,7 +55,7 @@ class _HpcJobsView extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                for (final s in _summary)
+                for (final s in summary)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: Container(
@@ -78,14 +79,28 @@ class _HpcJobsView extends StatelessWidget {
         ),
         UnderlineTabs(options: hpcJobFilters, selected: controller.filter, onSelected: controller.setFilter),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              for (final job in controller.filteredJobs) ...[
-                _JobCard(job: job, onTap: () => nav.navigate(AppScreen.jobDetail)),
-                const SizedBox(height: 8),
+          child: AsyncView(
+            loading: controller.loading,
+            error: controller.error,
+            loadedOnce: controller.loadedOnce,
+            onRetry: controller.load,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (controller.filteredJobs.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 48),
+                    child: Center(child: Text('Sin trabajos', style: TextStyle(color: AppColors.textSecondary))),
+                  ),
+                for (final job in controller.filteredJobs) ...[
+                  _JobCard(
+                    job: job,
+                    onTap: () => nav.navigate(AppScreen.jobDetail, arg: job.id),
+                  ),
+                  const SizedBox(height: 8),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ],

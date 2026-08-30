@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
 import '../../controllers/photo_album_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/photo_models.dart';
+import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
-/// Álbum de fotos, equivalente a screens/PhotoAlbumScreen.tsx.
+/// Álbum de fotos, conectado a `GET /fotos` del BFF.
 class PhotoAlbumScreen extends StatelessWidget {
   const PhotoAlbumScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => PhotoAlbumController(),
+      create: (ctx) => PhotoAlbumController(ctx.read<AuthController>().api),
       child: const _PhotoAlbumView(),
     );
   }
@@ -47,9 +49,15 @@ class _PhotoAlbumView extends StatelessWidget {
         ),
         UnderlineTabs(options: photoTabs, selected: controller.tab, onSelected: controller.setTab),
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: controller.tab == 'Álbumes' ? const _AlbumsGrid() : const _PhotosGrid(),
+          child: AsyncView(
+            loading: controller.loading,
+            error: controller.error,
+            loadedOnce: controller.loadedOnce,
+            onRetry: controller.load,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: controller.tab == 'Álbumes' ? const _AlbumsGrid() : const _PhotosGrid(),
+            ),
           ),
         ),
       ],
@@ -90,7 +98,7 @@ class _AlbumsGrid extends StatelessWidget {
           crossAxisSpacing: 10,
           childAspectRatio: 1.3,
           children: [
-            for (final album in mockAlbums)
+            for (final album in context.watch<PhotoAlbumController>().albums)
               Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(AppRadius.lg), boxShadow: cardShadow),
@@ -145,29 +153,39 @@ class _PhotosGrid extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        GridView.count(
-          crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 3,
-          crossAxisSpacing: 3,
-          children: [
-            for (var i = 0; i < mockPhotoSwatches.length; i++)
-              Stack(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(color: mockPhotoSwatches[i], borderRadius: BorderRadius.circular(4)),
-                  ),
-                  if (i == 0)
-                    const Positioned(
-                      top: 4,
-                      right: 4,
-                      child: Icon(Icons.favorite, size: 14, color: AppColors.error),
+        Builder(builder: (context) {
+          final photos = context.watch<PhotoAlbumController>().photos;
+          if (photos.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: Text('Sin fotografías', style: TextStyle(color: AppColors.textSecondary))),
+            );
+          }
+          return GridView.count(
+            crossAxisCount: 3,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 3,
+            crossAxisSpacing: 3,
+            children: [
+              for (final photo in photos)
+                Stack(
+                  children: [
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(color: photo.swatch, borderRadius: BorderRadius.circular(4)),
+                      ),
                     ),
-                ],
-              ),
-          ],
-        ),
+                    if (photo.favorite)
+                      const Positioned(
+                        top: 4, right: 4,
+                        child: Icon(Icons.favorite, size: 14, color: AppColors.error),
+                      ),
+                  ],
+                ),
+            ],
+          );
+        }),
         const SizedBox(height: 16),
         ElevatedButton.icon(
           onPressed: () {},

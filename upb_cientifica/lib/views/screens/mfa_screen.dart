@@ -2,22 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
 import '../../controllers/mfa_controller.dart';
-import '../../core/navigation/navigation_controller.dart';
-import '../../core/navigation/screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 
-/// Verificación en dos pasos con código de 6 dígitos, equivalente a
-/// screens/MFAScreen.tsx.
+/// Verificación en dos pasos con código de 6 dígitos.
+///
+/// Mientras el *Authentication Server* del sistema no exista, el BFF completa
+/// el login sin exigir el segundo factor: esta pantalla solo aparece si el
+/// backend responde `requiereMfa: true`.
 class MfaScreen extends StatelessWidget {
   const MfaScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final nav = context.read<NavigationController>();
-    return ChangeNotifierProvider(
-      create: (_) => MfaController(onComplete: () => nav.navigate(AppScreen.dashboard)),
+    final auth = context.read<AuthController>();
+    return ChangeNotifierProvider<MfaController>(
+      create: (ctx) => MfaController(
+        onComplete: () async {
+          final ctrl = ctx.read<MfaController>();
+          final messenger = ScaffoldMessenger.of(context);
+          try {
+            await auth.verifyMfa(ctrl.code);
+          } catch (_) {
+            messenger.showSnackBar(
+              SnackBar(content: Text(auth.error ?? 'Código incorrecto')),
+            );
+          }
+        },
+      ),
       child: const _MfaView(),
     );
   }
@@ -28,6 +42,9 @@ class _MfaView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final busy = context.watch<AuthController>().busy;
+    final mfa = context.read<MfaController>();
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -82,25 +99,31 @@ class _MfaView extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () => context.read<NavigationController>().navigate(AppScreen.dashboard),
-                  child: const Text('Verificar'),
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final auth = context.read<AuthController>();
+                          try {
+                            await auth.verifyMfa(mfa.code);
+                          } catch (_) {
+                            messenger.showSnackBar(
+                              SnackBar(content: Text(auth.error ?? 'Código incorrecto')),
+                            );
+                          }
+                        },
+                  child: busy
+                      ? const SizedBox(
+                          height: 18, width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Verificar'),
                 ),
               ),
               const Spacer(),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(AppRadius.sm)),
-                child: const Row(
-                  children: [
-                    Icon(Icons.shield_outlined, size: 14, color: AppColors.success),
-                    SizedBox(width: 8),
-                    Text(
-                      'Sesión protegida · Expira en 4:58',
-                      style: TextStyle(fontSize: 11, color: AppColors.success, fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
+              TextButton(
+                onPressed: () => context.read<AuthController>().logout(),
+                child: const Text('Volver al inicio de sesión'),
               ),
             ],
           ),
@@ -133,32 +156,32 @@ class _DigitField extends StatelessWidget {
           return KeyEventResult.ignored;
         },
         child: TextField(
-        controller: controller.digitControllers[index],
-        focusNode: controller.focusNodes[index],
-        textAlign: TextAlign.center,
-        keyboardType: TextInputType.number,
-        maxLength: 1,
-        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, fontFamily: monoFontFamily),
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        onChanged: (value) => controller.onDigitChanged(index, value),
-        decoration: InputDecoration(
-          counterText: '',
-          filled: true,
-          fillColor: filled ? AppColors.blueLight : AppColors.background,
-          contentPadding: EdgeInsets.zero,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            borderSide: BorderSide(color: filled ? AppColors.blue : AppColors.border, width: 2),
+          controller: controller.digitControllers[index],
+          focusNode: controller.focusNodes[index],
+          textAlign: TextAlign.center,
+          keyboardType: TextInputType.number,
+          maxLength: 1,
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, fontFamily: monoFontFamily),
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          onChanged: (value) => controller.onDigitChanged(index, value),
+          decoration: InputDecoration(
+            counterText: '',
+            filled: true,
+            fillColor: filled ? AppColors.blueLight : AppColors.background,
+            contentPadding: EdgeInsets.zero,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderSide: BorderSide(color: filled ? AppColors.blue : AppColors.border, width: 2),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderSide: BorderSide(color: filled ? AppColors.blue : AppColors.border, width: 2),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderSide: const BorderSide(color: AppColors.blue, width: 2),
+            ),
           ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            borderSide: BorderSide(color: filled ? AppColors.blue : AppColors.border, width: 2),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            borderSide: const BorderSide(color: AppColors.blue, width: 2),
-          ),
-        ),
         ),
       ),
     );

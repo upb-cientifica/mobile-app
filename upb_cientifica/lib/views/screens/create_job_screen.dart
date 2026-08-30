@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
 import '../../controllers/create_job_controller.dart';
 import '../../core/navigation/navigation_controller.dart';
 import '../../core/navigation/screen.dart';
@@ -10,15 +11,15 @@ import '../widgets/common_widgets.dart';
 
 const List<String> _stepLabels = ['Información', 'Archivos', 'Configuración', 'Confirmación'];
 
-/// Formulario de creación de un trabajo HPC en 4 pasos, equivalente a
-/// screens/CreateJobScreen.tsx.
+/// Formulario de creación de un trabajo HPC en 4 pasos. En el último paso
+/// envía el trabajo al clúster vía `POST /hpc/trabajos` del BFF.
 class CreateJobScreen extends StatelessWidget {
   const CreateJobScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => CreateJobController(),
+      create: (ctx) => CreateJobController(ctx.read<AuthController>().api),
       child: const _CreateJobView(),
     );
   }
@@ -112,14 +113,29 @@ class _CreateJobView extends StatelessWidget {
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
-                  onPressed: () {
-                    final shouldSubmit = controller.next();
-                    if (shouldSubmit) {
-                      controller.reset();
-                      nav.navigate(AppScreen.hpc);
-                    }
-                  },
-                  child: Text(controller.isLastStep ? 'Enviar al clúster' : 'Siguiente'),
+                  onPressed: controller.submitting
+                      ? null
+                      : () async {
+                          final shouldSubmit = controller.next();
+                          if (!shouldSubmit) return;
+                          final messenger = ScaffoldMessenger.of(context);
+                          final ok = await controller.submit();
+                          messenger.showSnackBar(SnackBar(
+                            content: Text(ok
+                                ? 'Trabajo enviado al clúster'
+                                : (controller.error ?? 'No se pudo enviar')),
+                          ));
+                          if (ok) {
+                            controller.reset();
+                            nav.navigate(AppScreen.hpc);
+                          }
+                        },
+                  child: controller.submitting
+                      ? const SizedBox(
+                          height: 18, width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text(controller.isLastStep ? 'Enviar al clúster' : 'Siguiente'),
                 ),
               ),
             ],
@@ -163,21 +179,29 @@ class _StepInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.read<CreateJobController>();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _StepTitle('Información del trabajo'),
         const _FormLabel('Nombre del trabajo'),
-        const TextField(decoration: InputDecoration(hintText: 'ej. Simulación Monte Carlo v3', filled: true, fillColor: AppColors.white)),
+        TextField(
+          controller: c.nombre,
+          decoration: const InputDecoration(hintText: 'ej. Simulación Monte Carlo v3', filled: true, fillColor: AppColors.white),
+        ),
         const SizedBox(height: 14),
         const _FormLabel('Descripción'),
-        const TextField(
+        TextField(
+          controller: c.descripcion,
           maxLines: 3,
-          decoration: InputDecoration(hintText: 'Describe el objetivo científico…', filled: true, fillColor: AppColors.white),
+          decoration: const InputDecoration(hintText: 'Describe el objetivo científico…', filled: true, fillColor: AppColors.white),
         ),
         const SizedBox(height: 14),
         const _FormLabel('Proyecto relacionado'),
-        const TextField(decoration: InputDecoration(hintText: 'Seleccionar proyecto…', filled: true, fillColor: AppColors.white)),
+        TextField(
+          controller: c.proyecto,
+          decoration: const InputDecoration(hintText: 'ej. clima, genomica…', filled: true, fillColor: AppColors.white),
+        ),
       ],
     );
   }

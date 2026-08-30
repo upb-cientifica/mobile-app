@@ -1,12 +1,15 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
 import '../../controllers/files_controller.dart';
 import '../../core/navigation/navigation_controller.dart';
 import '../../core/navigation/screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/file_models.dart';
+import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
 /// Explorador de archivos, equivalente a screens/FilesScreen.tsx.
@@ -16,9 +19,22 @@ class FilesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => FilesController(),
+      create: (ctx) => FilesController(ctx.read<AuthController>().api),
       child: const _FilesView(),
     );
+  }
+}
+
+Future<void> _pickAndUpload(BuildContext context, FilesController controller) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final result = await FilePicker.platform.pickFiles(withData: true);
+  final file = result?.files.singleOrNull;
+  if (file == null || file.bytes == null) return;
+  try {
+    await controller.upload(file.name, file.bytes!);
+    messenger.showSnackBar(SnackBar(content: Text('${file.name} subido')));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('No se pudo subir: $e')));
   }
 }
 
@@ -38,11 +54,25 @@ class _FilesView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: const [
-                  Text('Inicio', style: TextStyle(fontSize: 12, color: AppColors.blue, fontWeight: FontWeight.w500)),
-                  Icon(Icons.chevron_right, size: 14, color: AppColors.textSecondary),
-                  Text('Mis archivos', style: TextStyle(fontSize: 12, color: AppColors.textPrimary)),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  for (var i = 0; i < controller.breadcrumb.length; i++) ...[
+                    if (i > 0) const Icon(Icons.chevron_right, size: 14, color: AppColors.textSecondary),
+                    GestureDetector(
+                      onTap: () => controller.goTo(i),
+                      child: Text(
+                        controller.breadcrumb[i],
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: i == controller.breadcrumb.length - 1
+                              ? AppColors.textPrimary
+                              : AppColors.blue,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 8),
@@ -61,9 +91,9 @@ class _FilesView extends StatelessWidget {
                   ),
                   const Spacer(),
                   TextButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.tune, size: 14, color: AppColors.textSecondary),
-                    label: const Text('Ordenar', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    onPressed: () => _pickAndUpload(context, controller),
+                    icon: const Icon(Icons.upload_file, size: 16, color: AppColors.blue),
+                    label: const Text('Subir', style: TextStyle(fontSize: 12, color: AppColors.blue)),
                     style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
                   ),
                 ],
@@ -81,37 +111,53 @@ class _FilesView extends StatelessWidget {
         ),
         const Divider(height: 1),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const SectionLabel('Carpetas'),
-              const SizedBox(height: 8),
-              for (final folder in mockFolders) ...[
-                _FolderTile(folder: folder),
-                const SizedBox(height: 6),
-              ],
-              const SizedBox(height: 10),
-              const SectionLabel('Archivos recientes'),
-              const SizedBox(height: 8),
-              if (controller.viewMode == FilesViewMode.list)
-                for (final file in mockFiles) ...[
-                  _FileListTile(file: file, onTap: () => nav.navigate(AppScreen.fileDetail)),
-                  const SizedBox(height: 6),
-                ]
-              else
-                GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: 1.1,
-                  children: [
-                    for (final file in mockFiles)
-                      _FileGridTile(file: file, onTap: () => nav.navigate(AppScreen.fileDetail)),
+          child: AsyncView(
+            loading: controller.loading,
+            error: controller.error,
+            loadedOnce: controller.loadedOnce,
+            onRetry: controller.load,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (controller.folders.isNotEmpty) ...[
+                  const SectionLabel('Carpetas'),
+                  const SizedBox(height: 8),
+                  for (final folder in controller.folders) ...[
+                    GestureDetector(
+                      onTap: () => controller.openFolder(folder),
+                      child: _FolderTile(folder: folder),
+                    ),
+                    const SizedBox(height: 6),
                   ],
-                ),
-            ],
+                  const SizedBox(height: 10),
+                ],
+                const SectionLabel('Archivos'),
+                const SizedBox(height: 8),
+                if (controller.files.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: Center(child: Text('Carpeta vacía', style: TextStyle(color: AppColors.textSecondary))),
+                  )
+                else if (controller.viewMode == FilesViewMode.list)
+                  for (final file in controller.files) ...[
+                    _FileListTile(file: file, onTap: () => nav.navigate(AppScreen.fileDetail, arg: file.id)),
+                    const SizedBox(height: 6),
+                  ]
+                else
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 1.1,
+                    children: [
+                      for (final file in controller.files)
+                        _FileGridTile(file: file, onTap: () => nav.navigate(AppScreen.fileDetail, arg: file.id)),
+                    ],
+                  ),
+              ],
+            ),
           ),
         ),
       ],

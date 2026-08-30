@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../core/utils/date_utils.dart';
+
 enum ServiceHealth { ok, warn, error }
 
 extension ServiceHealthColor on ServiceHealth {
-  Color get color {
-    switch (this) {
-      case ServiceHealth.ok:
-        return const Color(0xFF34A853);
-      case ServiceHealth.warn:
-        return const Color(0xFFFBBC04);
-      case ServiceHealth.error:
-        return const Color(0xFFEA4335);
-    }
-  }
+  Color get color => switch (this) {
+        ServiceHealth.ok => const Color(0xFF34A853),
+        ServiceHealth.warn => const Color(0xFFFBBC04),
+        ServiceHealth.error => const Color(0xFFEA4335),
+      };
 }
+
+ServiceHealth serviceHealthFromApi(String? s) => switch (s) {
+      'operativo' => ServiceHealth.ok,
+      'degradado' || 'mantenimiento' => ServiceHealth.warn,
+      _ => ServiceHealth.error,
+    };
 
 class ServiceStatusEntry {
   const ServiceStatusEntry({
@@ -27,17 +30,14 @@ class ServiceStatusEntry {
   final ServiceHealth status;
   final String responseTime;
   final String checkedAt;
-}
 
-const List<ServiceStatusEntry> mockServices = [
-  ServiceStatusEntry(name: 'Shared File', status: ServiceHealth.ok, responseTime: '12 ms', checkedAt: 'hace 1 min'),
-  ServiceStatusEntry(name: 'File Sync', status: ServiceHealth.ok, responseTime: '28 ms', checkedAt: 'hace 1 min'),
-  ServiceStatusEntry(name: 'Photo Album', status: ServiceHealth.ok, responseTime: '18 ms', checkedAt: 'hace 1 min'),
-  ServiceStatusEntry(name: 'Streaming', status: ServiceHealth.warn, responseTime: '284 ms', checkedAt: 'hace 2 min'),
-  ServiceStatusEntry(name: 'Autenticación', status: ServiceHealth.ok, responseTime: '9 ms', checkedAt: 'hace 1 min'),
-  ServiceStatusEntry(name: 'Clúster HPC', status: ServiceHealth.ok, responseTime: '41 ms', checkedAt: 'hace 1 min'),
-  ServiceStatusEntry(name: 'API principal', status: ServiceHealth.ok, responseTime: '7 ms', checkedAt: 'hace 1 min'),
-];
+  factory ServiceStatusEntry.fromApi(Map<String, dynamic> j) => ServiceStatusEntry(
+        name: j['nombre'] as String? ?? j['codigo'] as String? ?? '',
+        status: serviceHealthFromApi(j['estado'] as String?),
+        responseTime: '${j['tiempoRespuestaMs'] ?? 0} ms',
+        checkedAt: relativeSpanish(j['ultimaVerificacion'] as String?),
+      );
+}
 
 class MetricCardData {
   const MetricCardData({
@@ -53,9 +53,46 @@ class MetricCardData {
   final List<double> data;
 }
 
-const List<MetricCardData> mockMetricCards = [
-  MetricCardData(label: 'CPU', value: '74%', color: Color(0xFF1A73E8), data: [45, 62, 58, 71, 68, 74, 74]),
-  MetricCardData(label: 'Memoria', value: '68%', color: Color(0xFF9C27B0), data: [50, 55, 60, 62, 65, 67, 68]),
-  MetricCardData(label: 'Almacenamiento', value: '16%', color: Color(0xFF34A853), data: [12, 13, 14, 14, 15, 16, 16]),
-  MetricCardData(label: 'Red I/O', value: '2.1 GB/s', color: Color(0xFFFBBC04), data: [0.8, 1.2, 1.8, 2.4, 1.6, 2.0, 2.1]),
-];
+/// Resumen completo de `GET /monitoreo`.
+class MonitoringSummary {
+  const MonitoringSummary({
+    required this.cards,
+    required this.services,
+    required this.nodosDisponibles,
+    required this.nodosTotal,
+    required this.trabajosEjecutando,
+    required this.trabajosCola,
+  });
+
+  final List<MetricCardData> cards;
+  final List<ServiceStatusEntry> services;
+  final int nodosDisponibles;
+  final int nodosTotal;
+  final int trabajosEjecutando;
+  final int trabajosCola;
+
+  factory MonitoringSummary.fromApi(Map<String, dynamic> j) {
+    final r = Map<String, dynamic>.from(j['recursos'] as Map? ?? {});
+    final n = Map<String, dynamic>.from(j['nodos'] as Map? ?? {});
+    final t = Map<String, dynamic>.from(j['trabajos'] as Map? ?? {});
+    final g = Map<String, dynamic>.from(j['graficas'] as Map? ?? {});
+    List<double> serie(String k) =>
+        (g[k] as List? ?? []).map((p) => ((p as Map)['valor'] as num).toDouble()).toList();
+
+    return MonitoringSummary(
+      cards: [
+        MetricCardData(label: 'CPU', value: '${r['cpuPct'] ?? 0}%', color: const Color(0xFF1A73E8), data: serie('cpu')),
+        MetricCardData(label: 'Memoria', value: '${r['memoriaPct'] ?? 0}%', color: const Color(0xFF9C27B0), data: serie('memoria')),
+        MetricCardData(label: 'Almacenamiento', value: '${r['almacenamientoPct'] ?? 0}%', color: const Color(0xFF34A853), data: serie('cargaTrabajos')),
+        MetricCardData(label: 'Trabajos', value: '${t['ejecutando'] ?? 0}', color: const Color(0xFFFBBC04), data: serie('tiempoEjecucionProm')),
+      ],
+      services: (j['servicios'] as List? ?? [])
+          .map((e) => ServiceStatusEntry.fromApi(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      nodosDisponibles: (n['disponibles'] as num?)?.toInt() ?? 0,
+      nodosTotal: (n['total'] as num?)?.toInt() ?? 0,
+      trabajosEjecutando: (t['ejecutando'] as num?)?.toInt() ?? 0,
+      trabajosCola: (t['cola'] as num?)?.toInt() ?? 0,
+    );
+  }
+}

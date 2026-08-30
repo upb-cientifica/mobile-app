@@ -38,6 +38,17 @@ dependencies:
   # State management (controllers en el patrón MVC)
   provider: ^6.1.2
 
+  # Capa de datos: cliente HTTP hacia el BFF
+  http: ^1.2.2
+  # Token de sesión (access + refresh) en almacenamiento seguro
+  flutter_secure_storage: ^9.2.2
+  # Detección de red local Wi-Fi para disparar la sincronización
+  connectivity_plus: ^6.0.5
+  # Reproductor de video real (pantalla de streaming)
+  video_player: ^2.9.2
+  # Selección de archivos para subir al repositorio
+  file_picker: ^10.3.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

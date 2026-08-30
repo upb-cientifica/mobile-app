@@ -1,29 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
 import '../../controllers/job_detail_controller.dart';
+import '../../core/navigation/navigation_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
-const List<String> _logLines = [
-  '[09:14:02] Trabajo iniciado en nodo compute-01',
-  '[09:14:05] MPI: 64 procesos inicializados',
-  '[09:14:08] Cargando datos: datos_sensores.csv',
-  '[09:15:32] Iteración 1/1000 completada',
-  '[10:22:47] Iteración 680/1000 completada',
-  '[10:22:47] Uso de memoria: 87.3 GB / 128 GB',
-  '[10:22:48] Checkpointing en /scratch/JOB-2047/ckpt_680.h5',
-];
-
-/// Detalle de un trabajo HPC, equivalente a screens/JobDetailScreen.tsx.
+/// Detalle de un trabajo HPC, conectado a `GET /hpc/trabajos/:id` del BFF.
 class JobDetailScreen extends StatelessWidget {
   const JobDetailScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final jobId = context.read<NavigationController>().argString ?? '';
     return ChangeNotifierProvider(
-      create: (_) => JobDetailController(),
+      create: (ctx) => JobDetailController(ctx.read<AuthController>().api, jobId),
       child: const _JobDetailView(),
     );
   }
@@ -35,6 +29,9 @@ class _JobDetailView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<JobDetailController>();
+    final j = controller.job;
+    final progreso = ((j['progreso'] as num?) ?? 0).toInt();
+    final restante = (j['metricas'] as Map?)?['tiempoRestanteMin'];
 
     return Column(
       children: [
@@ -48,32 +45,35 @@ class _JobDetailView extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('JOB-2047', style: TextStyle(fontSize: 12, color: Colors.white70, fontFamily: monoFontFamily)),
-                        SizedBox(height: 4),
-                        Text('Análisis climático ENSO', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+                        Text('${j['id'] ?? ''}'.substring(0, ('${j['id'] ?? ''}'.length).clamp(0, 8)),
+                            style: const TextStyle(fontSize: 12, color: Colors.white70, fontFamily: monoFontFamily)),
+                        const SizedBox(height: 4),
+                        Text('${j['nombre'] ?? 'Trabajo'}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
                       ],
                     ),
                   ),
-                  const StatusPill(label: 'Ejecutando', color: AppColors.blue, background: Colors.white),
+                  StatusPill(label: '${j['estado'] ?? '—'}', color: AppColors.blue, background: Colors.white),
                 ],
               ),
               const SizedBox(height: 14),
-              const Row(
+              Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Progreso: 68%', style: TextStyle(fontSize: 12, color: Colors.white70)),
-                  Text('~45 min restantes', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                  Text('Progreso: $progreso%', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                  if (restante != null)
+                    Text('~$restante min restantes', style: const TextStyle(fontSize: 12, color: Colors.white70)),
                 ],
               ),
               const SizedBox(height: 6),
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  value: 0.68,
+                  value: progreso / 100,
                   minHeight: 8,
                   backgroundColor: Colors.white.withValues(alpha: 0.25),
                   valueColor: const AlwaysStoppedAnimation(Color(0xFF69F0AE)),
@@ -122,9 +122,15 @@ class _JobDetailView extends StatelessWidget {
         ),
         UnderlineTabs(options: JobDetailController.tabs, selected: controller.tab, onSelected: controller.setTab),
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: _TabContent(tab: controller.tab),
+          child: AsyncView(
+            loading: controller.loading,
+            error: controller.error,
+            loadedOnce: controller.loadedOnce,
+            onRetry: controller.load,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: _TabContent(tab: controller.tab),
+            ),
           ),
         ),
         Padding(
@@ -133,7 +139,11 @@ class _JobDetailView extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {},
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await controller.cancel();
+                    messenger.showSnackBar(const SnackBar(content: Text('Cancelación solicitada')));
+                  },
                   icon: const Icon(Icons.close, size: 14, color: AppColors.error),
                   label: const Text('Cancelar', style: TextStyle(color: AppColors.error)),
                   style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44), side: const BorderSide(color: AppColors.error, width: 1.5), textStyle: const TextStyle(fontSize: 13)),
@@ -141,19 +151,14 @@ class _JobDetailView extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.download_outlined, size: 14),
-                  label: const Text('Descargar'),
-                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.share_outlined, size: 14),
-                  label: const Text('Compartir'),
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await controller.rerun();
+                    messenger.showSnackBar(const SnackBar(content: Text('Re-ejecución enviada al clúster')));
+                  },
+                  icon: const Icon(Icons.replay, size: 14),
+                  label: const Text('Re-ejecutar'),
                   style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
                 ),
               ),
@@ -222,64 +227,53 @@ class _TabContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    switch (tab) {
-      case 'Registro':
-        return Container(
+    final c = context.watch<JobDetailController>();
+    Widget consola(List<String> lineas, {String vacio = 'Sin salida'}) => Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: const Color(0xFF1A1A1A), borderRadius: BorderRadius.circular(AppRadius.md)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final line in _logLines)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text(
-                    line,
-                    style: TextStyle(
-                      fontSize: 11,
-                      height: 1.6,
-                      fontFamily: monoFontFamily,
-                      color: line.contains('completada') ? const Color(0xFF69F0AE) : Colors.white70,
-                    ),
-                  ),
-                ),
-              const Text('█', style: TextStyle(fontSize: 11, color: Color(0xFF4CAF50), fontFamily: monoFontFamily)),
-            ],
+            children: lineas.isEmpty
+                ? [Text(vacio, style: const TextStyle(fontSize: 11, color: Colors.white54, fontFamily: monoFontFamily))]
+                : [
+                    for (final line in lineas)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(line,
+                            style: const TextStyle(fontSize: 11, height: 1.6, fontFamily: monoFontFamily, color: Colors.white70)),
+                      ),
+                  ],
           ),
+        );
+
+    switch (tab) {
+      case 'Registro':
+        return consola(
+          c.eventos.map((e) => '${e['tipo'] ?? ''} · ${e['mensaje'] ?? ''}').toList(),
+          vacio: 'Sin eventos registrados',
         );
       case 'Salida':
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: const Color(0xFF1A1A1A), borderRadius: BorderRadius.circular(AppRadius.md)),
-          child: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('ENSO Análisis v2.1 — Modo paralelo', style: TextStyle(fontSize: 11, color: Colors.white70, fontFamily: monoFontFamily, height: 1.6)),
-              Text('Cargados 2.847.392 registros de sensores', style: TextStyle(fontSize: 11, color: Colors.white70, fontFamily: monoFontFamily, height: 1.6)),
-              Text('Correlación Niño-3.4: 0.847 (p<0.001)', style: TextStyle(fontSize: 11, color: Color(0xFF69F0AE), fontFamily: monoFontFamily, height: 1.6)),
-              Text('Anomalía SST máxima: +1.8°C (enero 2024)', style: TextStyle(fontSize: 11, color: Colors.white70, fontFamily: monoFontFamily, height: 1.6)),
-            ],
-          ),
-        );
+        return consola(c.salida);
       case 'Errores':
-        return AppCard(
-          child: const Center(
-            child: Text('✓ Sin errores registrados', style: TextStyle(fontSize: 13, color: AppColors.success)),
-          ),
-        );
+        return c.errores.isEmpty
+            ? const AppCard(
+                child: Center(child: Text('✓ Sin errores registrados', style: TextStyle(fontSize: 13, color: AppColors.success))),
+              )
+            : consola(c.errores);
       case 'Resultados':
-        const files = ['resultados_parciales_680.h5', 'checkpoint_680.h5', 'figura_correlacion.png'];
+        if (c.resultados.isEmpty) {
+          return const AppCard(child: Center(child: Text('Aún no hay resultados', style: TextStyle(fontSize: 13, color: AppColors.textSecondary))));
+        }
         return Column(
           children: [
-            for (final f in files) ...[
+            for (final f in c.resultados) ...[
               AppCard(
                 radius: AppRadius.md,
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 child: Row(
                   children: [
-                    Expanded(child: Text(f, style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontFamily: monoFontFamily))),
+                    Expanded(child: Text('${f['nombre']}', style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontFamily: monoFontFamily))),
                     const Icon(Icons.download_outlined, size: 16, color: AppColors.blue),
                   ],
                 ),

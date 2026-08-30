@@ -1,28 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../../core/navigation/navigation_controller.dart';
-import '../../core/navigation/screen.dart';
 import '../../core/theme/app_colors.dart';
 
-/// Pantalla de bienvenida con animación conceptual de nodos conectados,
-/// equivalente a screens/SplashScreen.tsx.
-class SplashScreen extends StatefulWidget {
+/// Pantalla de bienvenida. Se muestra mientras `AuthController` comprueba si
+/// hay una sesión guardada; en cuanto termina, `_Root` navega solo.
+class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  @override
-  void initState() {
-    super.initState();
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      context.read<NavigationController>().navigate(AppScreen.login);
-    });
-  }
 
   @override
   Widget build(BuildContext context) {

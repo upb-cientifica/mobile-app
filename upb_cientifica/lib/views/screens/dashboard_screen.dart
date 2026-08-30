@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
+import '../../controllers/dashboard_controller.dart';
 import '../../core/navigation/navigation_controller.dart';
 import '../../core/navigation/screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
 import '../../models/activity_item.dart';
+import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
 class _QuickLink {
@@ -20,43 +23,53 @@ class _QuickLink {
 }
 
 const List<_QuickLink> _quickLinks = [
-  _QuickLink(Icons.share_outlined, 'Compartidos', AppColors.blue, AppColors.blueLight, AppScreen.fileDetail),
+  _QuickLink(Icons.share_outlined, 'Compartidos', AppColors.blue, AppColors.blueLight, AppScreen.files),
   _QuickLink(Icons.refresh, 'Sincronización', AppColors.success, AppColors.successLight, AppScreen.sync),
   _QuickLink(Icons.image_outlined, 'Álbum', AppColors.warning, AppColors.warningLight, AppScreen.photos),
   _QuickLink(Icons.play_circle_outline, 'Streaming', AppColors.error, AppColors.errorLight, AppScreen.streaming),
   _QuickLink(Icons.memory, 'HPC', AppColors.purple, AppColors.purpleLight, AppScreen.hpc),
 ];
 
-/// Pantalla principal / dashboard, equivalente a screens/DashboardScreen.tsx.
+/// Pantalla principal / dashboard, conectada a `GET /dashboard` del BFF.
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    const used = 2.4;
-    const total = 15.0;
-    const pct = used / total;
-    final nav = context.read<NavigationController>();
+    return ChangeNotifierProvider(
+      create: (ctx) => DashboardController(ctx.read<AuthController>().api),
+      child: const _DashboardView(),
+    );
+  }
+}
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+class _DashboardView extends StatelessWidget {
+  const _DashboardView();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.watch<DashboardController>();
+    final nav = context.read<NavigationController>();
+    final pct = (c.cuotaBytes == 0 ? 0.0 : c.usadoBytes / c.cuotaBytes).clamp(0.0, 1.0);
+
+    return AsyncView(
+      loading: c.loading,
+      error: c.error,
+      loadedOnce: c.loadedOnce,
+      onRetry: c.load,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 16),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  formatSpanishLongDate(DateTime.now()),
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                ),
+                Text(formatSpanishLongDate(DateTime.now()),
+                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                 const SizedBox(height: 4),
-                const Text(
-                  'Buenos días, Stiven',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                ),
+                Text(c.saludo,
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
               ],
             ),
           ),
@@ -73,54 +86,40 @@ class DashboardScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Almacenamiento', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            const Text('Almacenamiento',
+                                style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                             const SizedBox(height: 4),
-                            RichText(
-                              text: const TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: '$used GB ',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                                  ),
-                                  TextSpan(
-                                    text: 'de $total GB',
-                                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                                  ),
-                                ],
-                              ),
+                            Text(
+                              c.almacenamientoTexto.isEmpty
+                                  ? '${formatBytes(c.usadoBytes)} de ${formatBytes(c.cuotaBytes)}'
+                                  : c.almacenamientoTexto,
+                              style: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                             ),
                           ],
                         ),
                       ),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
-                        children: const [
-                          _StatusRow(label: 'Sincronizado'),
-                          SizedBox(height: 4),
-                          _StatusRow(label: 'Red UPB activa'),
+                        children: [
+                          _StatusRow(
+                            label: c.syncEstado == 'sincronizado' ? 'Sincronizado' : 'Sync pendiente',
+                            ok: c.syncEstado == 'sincronizado',
+                          ),
+                          const SizedBox(height: 4),
+                          _StatusRow(label: c.enRedLocal ? 'Red UPB activa' : 'Fuera de red UPB', ok: c.enRedLocal),
                         ],
                       ),
                     ],
                   ),
                   const SizedBox(height: 14),
-                  ThinProgressBar(value: pct, color: pct > 0.8 ? AppColors.warning : AppColors.blue),
+                  ThinProgressBar(value: pct.toDouble(), color: pct > 0.8 ? AppColors.warning : AppColors.blue),
                   const SizedBox(height: 6),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('1.847 archivos', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                      Text('${(pct * 100).toStringAsFixed(0)}% utilizado', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(height: 1),
-                  const SizedBox(height: 12),
-                  const Row(
-                    children: [
-                      _StorageStat(value: '423', label: 'Documentos'),
-                      _StorageStat(value: '689', label: 'Imágenes'),
-                      _StorageStat(value: '312', label: 'Código'),
-                      _StorageStat(value: '98', label: 'Datasets'),
+                      Text('${c.archivos} archivos', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      Text('${c.porcentaje}% utilizado', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                     ],
                   ),
                 ],
@@ -132,7 +131,8 @@ class DashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Acceso rápido', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                const Text('Acceso rápido',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
                 const SizedBox(height: 12),
                 GridView.count(
                   crossAxisCount: 3,
@@ -152,11 +152,9 @@ class DashboardScreen extends StatelessWidget {
                           children: [
                             IconTile(icon: link.icon, color: link.color, background: link.bg, size: 40, iconSize: 20, radius: AppRadius.md),
                             const SizedBox(height: 8),
-                            Text(
-                              link.label,
-                              style: const TextStyle(fontSize: 11, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
-                              textAlign: TextAlign.center,
-                            ),
+                            Text(link.label,
+                                style: const TextStyle(fontSize: 11, color: AppColors.textPrimary, fontWeight: FontWeight.w500),
+                                textAlign: TextAlign.center),
                           ],
                         ),
                       ),
@@ -170,16 +168,16 @@ class DashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Actividad reciente', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                const Text('Actividad reciente',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
                 const SizedBox(height: 12),
-                Column(
-                  children: [
-                    for (final item in mockActivity) ...[
-                      _ActivityTile(item: item),
-                      if (item != mockActivity.last) const SizedBox(height: 8),
-                    ],
+                if (c.actividad.isEmpty)
+                  const Text('Sin actividad reciente', style: TextStyle(fontSize: 12, color: AppColors.textSecondary))
+                else
+                  for (final item in c.actividad) ...[
+                    _ActivityTile(item: item),
+                    if (item != c.actividad.last) const SizedBox(height: 8),
                   ],
-                ),
               ],
             ),
           ),
@@ -187,23 +185,21 @@ class DashboardScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: AppColors.brandGradient,
-                borderRadius: BorderRadius.circular(AppRadius.xl),
-              ),
+              decoration: BoxDecoration(gradient: AppColors.brandGradient, borderRadius: BorderRadius.circular(AppRadius.xl)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Clúster HPC', style: TextStyle(fontSize: 12, color: Colors.white70)),
-                            SizedBox(height: 4),
-                            Text('3 trabajos activos', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white)),
+                            const Text('Clúster HPC', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                            const SizedBox(height: 4),
+                            Text('${c.hpcEjecutando + c.hpcCola} trabajos activos',
+                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white)),
                           ],
                         ),
                       ),
@@ -211,13 +207,11 @@ class DashboardScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  const Row(
+                  Row(
                     children: [
-                      _HpcStat(value: '3', label: 'Ejecutando', color: Color(0xFF69F0AE)),
-                      SizedBox(width: 16),
-                      _HpcStat(value: '7', label: 'En cola', color: AppColors.warning),
-                      SizedBox(width: 16),
-                      _HpcStat(value: '12', label: 'Completados hoy', color: Colors.white70),
+                      _HpcStat(value: '${c.hpcEjecutando}', label: 'Ejecutando', color: const Color(0xFF69F0AE)),
+                      const SizedBox(width: 16),
+                      _HpcStat(value: '${c.hpcCola}', label: 'En cola', color: AppColors.warning),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -229,7 +223,8 @@ class DashboardScreen extends StatelessWidget {
                       onTap: () => nav.navigate(AppScreen.hpc),
                       child: const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Text('Ver trabajos →', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                        child: Text('Ver trabajos →',
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
                       ),
                     ),
                   ),
@@ -244,39 +239,21 @@ class DashboardScreen extends StatelessWidget {
 }
 
 class _StatusRow extends StatelessWidget {
-  const _StatusRow({required this.label});
+  const _StatusRow({required this.label, this.ok = true});
 
   final String label;
+  final bool ok;
 
   @override
   Widget build(BuildContext context) {
+    final color = ok ? AppColors.success : AppColors.warning;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const StatusDot(color: AppColors.success),
+        StatusDot(color: color),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.success, fontWeight: FontWeight.w500)),
+        Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500)),
       ],
-    );
-  }
-}
-
-class _StorageStat extends StatelessWidget {
-  const _StorageStat({required this.value, required this.label});
-
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-          const SizedBox(height: 2),
-          Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
-        ],
-      ),
     );
   }
 }
@@ -299,7 +276,9 @@ class _ActivityTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(item.label,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
                 Text(item.sub, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
               ],

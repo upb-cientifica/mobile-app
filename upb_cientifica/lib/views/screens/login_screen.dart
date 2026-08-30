@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/auth_controller.dart';
 import '../../controllers/login_controller.dart';
-import '../../core/navigation/navigation_controller.dart';
-import '../../core/navigation/screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/logo_mark.dart';
 
-/// Pantalla de inicio de sesión, equivalente a screens/LoginScreen.tsx.
+/// Pantalla de inicio de sesión conectada al BFF vía [AuthController].
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
@@ -24,9 +23,27 @@ class LoginScreen extends StatelessWidget {
 class _LoginView extends StatelessWidget {
   const _LoginView();
 
+  Future<void> _submit(BuildContext context) async {
+    final form = context.read<LoginController>();
+    final auth = context.read<AuthController>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await auth.login(
+        form.emailController.text,
+        form.passwordController.text,
+        rememberDevice: form.rememberDevice,
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(auth.error ?? 'No se pudo iniciar sesión')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LoginController>();
+    final busy = context.watch<AuthController>().busy;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -34,7 +51,8 @@ class _LoginView extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
           child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: MediaQuery.of(context).size.height - 48),
+            constraints:
+                BoxConstraints(minHeight: MediaQuery.of(context).size.height - 48),
             child: Column(
               children: [
                 const SizedBox(height: 16),
@@ -55,6 +73,9 @@ class _LoginView extends StatelessWidget {
                 const SizedBox(height: 6),
                 TextField(
                   controller: controller.emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
+                  enabled: !busy,
                   decoration: const InputDecoration(
                     hintText: 'usuario@upb.edu.co',
                     prefixIcon: Icon(Icons.mail_outline, size: 18, color: AppColors.textSecondary),
@@ -66,6 +87,8 @@ class _LoginView extends StatelessWidget {
                 TextField(
                   controller: controller.passwordController,
                   obscureText: !controller.showPassword,
+                  enabled: !busy,
+                  onSubmitted: (_) => _submit(context),
                   decoration: InputDecoration(
                     hintText: '••••••••',
                     prefixIcon: const Icon(Icons.lock_outline, size: 18, color: AppColors.textSecondary),
@@ -117,8 +140,13 @@ class _LoginView extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 ElevatedButton(
-                  onPressed: () => context.read<NavigationController>().navigate(AppScreen.mfa),
-                  child: const Text('Iniciar sesión'),
+                  onPressed: busy ? null : () => _submit(context),
+                  child: busy
+                      ? const SizedBox(
+                          height: 18, width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Iniciar sesión'),
                 ),
                 const SizedBox(height: 40),
                 Container(
