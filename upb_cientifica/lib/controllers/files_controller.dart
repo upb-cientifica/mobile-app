@@ -1,18 +1,22 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/api_client.dart';
+import '../data/api.dart';
 import '../models/file_models.dart';
 import 'async_state.dart';
 
 enum FilesViewMode { grid, list }
 
-/// Explorador de archivos: navegación por rutas, filtro, vista y datos del BFF.
+/// Explorador del Home compartido: navegación por rutas, filtro y vista.
+///
+/// El servicio identifica cada nodo por su **ruta**, no por un id opaco, así
+/// que aquí la ruta es el identificador: es única, estable y lleva el padre
+/// implícito.
 class FilesController extends ChangeNotifier with AsyncState {
   FilesController(this._api) {
     load();
   }
 
-  final ApiClient _api;
+  final Api _api;
 
   FilesViewMode _viewMode = FilesViewMode.list;
   String _filter = 'Todos';
@@ -30,17 +34,10 @@ class FilesController extends ChangeNotifier with AsyncState {
       ['Inicio', ..._path.split('/').where((s) => s.isNotEmpty)];
 
   Future<void> load() => run(() async {
-        final j = Map<String, dynamic>.from(await _api.get('/archivos', query: {
-          'ruta': _path,
-          'filtro': fileFilterToApi(_filter),
-        }) as Map);
-        _path = j['ruta'] as String? ?? _path;
-        folders = (j['carpetas'] as List? ?? [])
-            .map((e) => FolderEntry.fromApi(Map<String, dynamic>.from(e as Map)))
-            .toList();
-        files = (j['archivos'] as List? ?? [])
-            .map((e) => FileEntry.fromApi(Map<String, dynamic>.from(e as Map)))
-            .toList();
+        final c = await _api.archivos.listar(_path, filtro: fileFilterToApi(_filter));
+        _path = c.ruta;
+        folders = c.carpetas.map(FolderEntry.fromApi).toList();
+        files = c.archivos.map(FileEntry.fromApi).toList();
       });
 
   void openFolder(FolderEntry folder) {
@@ -81,21 +78,33 @@ class FilesController extends ChangeNotifier with AsyncState {
     }
   }
 
-  Future<void> deleteFile(String id) async {
-    await _api.delete('/archivos/$id');
+  /// Borrado reversible: el archivo va a la papelera del Home.
+  Future<void> deleteFile(String ruta) async {
+    await _api.archivos.eliminar(ruta);
     _openMenuIndex = null;
     await load();
   }
 
-  /// Sube [bytes] con [filename] a la ruta actual (multipart).
+  Future<void> toggleStar(String ruta) async {
+    await _api.archivos.destacar(ruta);
+    _openMenuIndex = null;
+    await load();
+  }
+
+  Future<void> rename(String ruta, String nuevoNombre) async {
+    await _api.archivos.renombrar(ruta, nuevoNombre);
+    _openMenuIndex = null;
+    await load();
+  }
+
+  Future<void> createFolder(String nombre) async {
+    await _api.archivos.crearCarpeta(_path, nombre);
+    await load();
+  }
+
+  /// Sube [bytes] con [filename] a la carpeta actual.
   Future<void> upload(String filename, List<int> bytes) async {
-    await _api.uploadMultipart(
-      '/archivos/upload',
-      field: 'archivo',
-      filename: filename,
-      bytes: bytes,
-      fields: {'ruta': _path},
-    );
+    await _api.archivos.subir(_path, filename, bytes);
     await load();
   }
 }

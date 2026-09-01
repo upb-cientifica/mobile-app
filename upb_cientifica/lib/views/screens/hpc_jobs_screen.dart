@@ -148,7 +148,7 @@ class _JobCard extends StatelessWidget {
             children: [
               const Icon(Icons.memory, size: 12, color: AppColors.textSecondary),
               const SizedBox(width: 4),
-              Text('${job.language} · ${job.processes} proc.', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+              Text('${job.program} · ${job.processes} proc.', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
               const SizedBox(width: 14),
               const Icon(Icons.access_time, size: 12, color: AppColors.textSecondary),
               const SizedBox(width: 4),

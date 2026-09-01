@@ -6,10 +6,12 @@ import '../../controllers/job_detail_controller.dart';
 import '../../core/navigation/navigation_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_utils.dart';
 import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
-/// Detalle de un trabajo HPC, conectado a `GET /hpc/trabajos/:id` del BFF.
+/// Detalle de un trabajo del clúster. El bus traduce la lectura en una
+/// invocación sobre el objeto remoto `ClusterHpc` (Java RMI).
 class JobDetailScreen extends StatelessWidget {
   const JobDetailScreen({super.key});
 
@@ -31,7 +33,6 @@ class _JobDetailView extends StatelessWidget {
     final controller = context.watch<JobDetailController>();
     final j = controller.job;
     final progreso = ((j['progreso'] as num?) ?? 0).toInt();
-    final restante = (j['metricas'] as Map?)?['tiempoRestanteMin'];
 
     return Column(
       children: [
@@ -65,8 +66,10 @@ class _JobDetailView extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Progreso: $progreso%', style: const TextStyle(fontSize: 12, color: Colors.white70)),
-                  if (restante != null)
-                    Text('~$restante min restantes', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                  // El planificador no estima cuánto falta —depende del
+                  // programa—, así que se muestra lo transcurrido.
+                  if (controller.enCurso)
+                    const Text('en ejecución', style: TextStyle(fontSize: 12, color: Colors.white70)),
                 ],
               ),
               const SizedBox(height: 6),
@@ -91,6 +94,9 @@ class _JobDetailView extends StatelessWidget {
           ),
           child: Column(
             children: [
+              // Lo que el planificador reporta del trabajo. No hay
+              // instrumentación por proceso en el clúster: no aparecen aquí
+              // CPU ni memoria porque serían números inventados.
               GridView.count(
                 crossAxisCount: 2,
                 shrinkWrap: true,
@@ -98,23 +104,28 @@ class _JobDetailView extends StatelessWidget {
                 childAspectRatio: 3.4,
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
-                children: const [
-                  _StatTile(Icons.memory, 'CPU utilizada', '74%', AppColors.blue),
-                  _StatTile(Icons.storage, 'Memoria', '87.3 / 128 GB', AppColors.purple),
-                  _StatTile(Icons.dns_outlined, 'Nodo asignado', 'compute-01', AppColors.success),
-                  _StatTile(Icons.access_time, 'Tiempo transcurrido', '2h 18m', AppColors.warning),
+                children: [
+                  _StatTile(Icons.memory, 'Procesos MPI', '${j['procesos'] ?? '—'}', AppColors.blue),
+                  _StatTile(Icons.access_time, 'Tiempo', controller.duracionTexto, AppColors.warning),
+                  _StatTile(Icons.terminal, 'Programa', '${j['programa'] ?? '—'}', AppColors.purple),
+                  _StatTile(
+                    Icons.flag_outlined,
+                    'Código de salida',
+                    ((j['codigoSalida'] as num?)?.toInt() ?? -1) >= 0 ? '${j['codigoSalida']}' : '—',
+                    AppColors.success,
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 12),
-              const Row(
+              Row(
                 children: [
-                  _MiniField('Procesos MPI', '64'),
-                  SizedBox(width: 16),
-                  _MiniField('Inicio', '30 jul, 09:14'),
-                  SizedBox(width: 16),
-                  _MiniField('Usuario', 'S. García'),
+                  _MiniField('Carpeta', '${j['rutaHome'] ?? '/'}'),
+                  const SizedBox(width: 16),
+                  _MiniField('Enviado', relativeSpanish(j['creadoEn'] as String?)),
+                  const SizedBox(width: 16),
+                  _MiniField('Usuario', '${j['propietario'] ?? '—'}'.split('@').first),
                 ],
               ),
             ],
@@ -283,31 +294,35 @@ class _TabContent extends StatelessWidget {
           ],
         );
       default:
-        const metrics = [
-          ['Eficiencia paralela', '92.3%', 0.923, AppColors.success],
-          ['Uso CPU promedio', '74%', 0.74, AppColors.blue],
-          ['Uso memoria pico', '68.2%', 0.682, AppColors.purple],
-          ['I/O throughput', '2.1 GB/s', 0.6, AppColors.warning],
-        ];
+        // Lo que el planificador realmente sabe del trabajo. No hay
+        // instrumentación por proceso en el clúster, así que aquí no aparecen
+        // eficiencias ni anchos de banda: aparecería un número inventado.
+        final metricas = c.metricas;
+        if (metricas.isEmpty) {
+          return const AppCard(child: Center(child: Text('Sin métricas todavía', style: TextStyle(fontSize: 13, color: AppColors.textSecondary))));
+        }
+        const colores = [AppColors.blue, AppColors.success, AppColors.purple, AppColors.warning];
         return AppCard(
           child: Column(
             children: [
-              for (final m in metrics) ...[
+              for (final (i, m) in metricas.indexed) ...[
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(m[0] as String, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                        Text(m[1] as String, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: m[3] as Color)),
+                        Text('${m['label']}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                        Text('${m['valor']}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colores[i % colores.length])),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    ThinProgressBar(value: m[2] as double, color: m[3] as Color, height: 6),
+                    if (m['fraccion'] != null) ...[
+                      const SizedBox(height: 4),
+                      ThinProgressBar(value: m['fraccion'] as double, color: colores[i % colores.length], height: 6),
+                    ],
                   ],
                 ),
-                if (m != metrics.last) const SizedBox(height: 14),
+                if (i < metricas.length - 1) const SizedBox(height: 14),
               ],
             ],
           ),

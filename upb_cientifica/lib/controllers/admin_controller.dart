@@ -1,15 +1,20 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/api_client.dart';
+import '../data/api.dart';
 import '../models/admin_models.dart';
 import 'async_state.dart';
 
+/// Panel de administración: cuentas del directorio, nodos del clúster y
+/// sesiones abiertas.
+///
+/// Cruza dos servicios en tres protocolos distintos —el directorio por SOAP,
+/// el clúster por RMI— y ninguno de los dos lo sabe: el bus los junta.
 class AdminController extends ChangeNotifier with AsyncState {
   AdminController(this._api) {
     load();
   }
 
-  final ApiClient _api;
+  final Api _api;
 
   List<AdminUserEntry> users = const [];
   int total = 0;
@@ -17,18 +22,25 @@ class AdminController extends ChangeNotifier with AsyncState {
   List<Map<String, dynamic>> auditoria = const [];
 
   Future<void> load() => run(() async {
-        final results = await Future.wait([
-          _api.get('/admin/usuarios', query: {'tamano': 20}),
-          _api.get('/admin/nodos'),
-          _api.get('/admin/auditoria', query: {'limite': 15}),
-        ]);
-        final lista = results[0] as List;
+        // Las tres lecturas salen a la vez; se esperan en orden.
+        final fUsuarios = _api.usuarios.listarUsuarios(tamano: 50);
+        final fNodos = _api.hpc.nodos();
+        final fSesiones = _api.usuarios.listarSesiones();
+
+        final lista = await fUsuarios;
         users = [
-          for (var i = 0; i < lista.length; i++)
-            AdminUserEntry.fromApi(Map<String, dynamic>.from(lista[i] as Map), i),
+          for (var i = 0; i < lista.length; i++) AdminUserEntry.fromApi(lista[i], i),
         ];
         total = users.length;
-        nodos = (results[1] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        auditoria = (results[2] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+
+        // El clúster reporta host, ranuras y si responde; no lleva métricas por
+        // nodo, así que se muestra la capacidad, que es lo que sí sabe.
+        nodos = (await fNodos).map((n) => {
+              'nombre': '${n['host']}',
+              'estado': n['disponible'] == true ? 'activo' : 'caido',
+              'slots': (n['slots'] as num?)?.toInt() ?? 0,
+            }).toList();
+
+        auditoria = await fSesiones;
       });
 }

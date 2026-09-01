@@ -24,25 +24,43 @@ const List<Color> _albumBg = [
 ];
 
 class Photo {
-  const Photo({required this.id, required this.title, required this.swatch, this.favorite = false});
+  const Photo({
+    required this.id,
+    required this.title,
+    required this.swatch,
+    this.thumbnailUrl = '',
+    this.url = '',
+    this.favorite = false,
+    this.tags = const [],
+  });
 
   final String id;
   final String title;
+
+  /// Miniatura y original, servidas por el Álbum de fotos a través del bus.
+  final String thumbnailUrl;
+  final String url;
+
+  /// Color de relleno mientras la miniatura carga, y si no llegara a cargar.
   final Color swatch;
   final bool favorite;
+  final List<String> tags;
 
   factory Photo.fromApi(Map<String, dynamic> j, int index) => Photo(
         id: '${j['id']}',
         title: j['titulo'] as String? ?? '',
+        thumbnailUrl: j['miniatura'] as String? ?? '',
+        url: j['url'] as String? ?? '',
         favorite: j['favorito'] == true,
-        swatch: mockPhotoSwatches[index % mockPhotoSwatches.length],
+        tags: (j['etiquetas'] as List? ?? []).map((e) => '$e').toList(),
+        swatch: photoSwatches[index % photoSwatches.length],
       );
 }
 
 const List<String> photoTabs = ['Álbumes', 'Recientes', 'Proyectos', 'Favoritos', 'Compartidos'];
 
-/// Colores de relleno usados como miniaturas (evita imágenes remotas de terceros).
-const List<Color> mockPhotoSwatches = [
+/// Colores de relleno mientras carga cada miniatura, y respaldo si no llega.
+const List<Color> photoSwatches = [
   Color(0xFFB8CFF3),
   Color(0xFFA8D8B9),
   Color(0xFFF6D488),

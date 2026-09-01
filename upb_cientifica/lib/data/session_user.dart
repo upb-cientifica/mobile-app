@@ -1,4 +1,5 @@
-/// Usuario autenticado tal como lo devuelve el BFF (`/auth/login`, `/auth/me`).
+/// Usuario autenticado, tal como lo devuelve el directorio de usuarios
+/// (`login` y `miPerfil`, mediados por el bus).
 class SessionUser {
   const SessionUser({
     required this.id,

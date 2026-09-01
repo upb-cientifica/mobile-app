@@ -1,15 +1,19 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/api_client.dart';
+import '../data/api.dart';
 import '../models/activity_item.dart';
 import 'async_state.dart';
 
+/// Panel de inicio. Es la única pantalla que resume varios servicios a la vez:
+/// el Home, la sincronización y el clúster. Esa agregación la hace
+/// [Api.panel], que lanza las lecturas en paralelo por el bus.
 class DashboardController extends ChangeNotifier with AsyncState {
-  DashboardController(this._api) {
+  DashboardController(this._api, {this.nombreUsuario = ''}) {
     load();
   }
 
-  final ApiClient _api;
+  final Api _api;
+  final String nombreUsuario;
 
   String saludo = 'Hola';
   int usadoBytes = 0;
@@ -19,16 +23,14 @@ class DashboardController extends ChangeNotifier with AsyncState {
   String almacenamientoTexto = '';
   String syncEstado = 'sincronizado';
   int syncPendientes = 0;
-  bool enRedLocal = false;
   int hpcEjecutando = 0;
   int hpcCola = 0;
   List<ActivityItem> actividad = const [];
 
   Future<void> load() => run(() async {
-        final j = Map<String, dynamic>.from(await _api.get('/dashboard') as Map);
+        final j = await _api.panel.resumen(nombre: nombreUsuario);
         final a = Map<String, dynamic>.from(j['almacenamiento'] as Map);
         final s = Map<String, dynamic>.from(j['sincronizacion'] as Map);
-        final r = Map<String, dynamic>.from(j['red'] as Map);
         final h = Map<String, dynamic>.from(j['trabajosHpc'] as Map);
 
         saludo = j['saludo'] as String? ?? 'Hola';
@@ -39,7 +41,6 @@ class DashboardController extends ChangeNotifier with AsyncState {
         almacenamientoTexto = a['texto'] as String? ?? '';
         syncEstado = s['estado'] as String? ?? 'sincronizado';
         syncPendientes = (s['pendientes'] as num?)?.toInt() ?? 0;
-        enRedLocal = r['enRedLocalUpb'] == true;
         hpcEjecutando = (h['ejecutando'] as num?)?.toInt() ?? 0;
         hpcCola = (h['cola'] as num?)?.toInt() ?? 0;
         actividad = (j['actividadReciente'] as List? ?? [])

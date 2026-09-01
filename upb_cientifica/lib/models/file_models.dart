@@ -21,6 +21,7 @@ class FolderEntry {
         id: '${j['id']}',
         name: j['nombre'] as String? ?? '',
         path: j['ruta'] as String? ?? '/',
+        modified: relativeSpanish(j['modificadoEn'] as String?),
       );
 }
 
@@ -80,7 +81,7 @@ const List<String> fileFilters = [
   'Datasets',
 ];
 
-/// Etiqueta del filtro de UI -> valor `filtro` del BFF.
+/// Etiqueta del filtro de la interfaz -> tipo que clasifica el Home compartido.
 String? fileFilterToApi(String f) => switch (f) {
       'Documentos' => 'documentos',
       'Imágenes' => 'imagenes',

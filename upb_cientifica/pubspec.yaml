@@ -38,7 +38,7 @@ dependencies:
   # State management (controllers en el patrón MVC)
   provider: ^6.1.2
 
-  # Capa de datos: cliente HTTP hacia el BFF
+  # Capa de datos: cliente HTTP hacia el Service Bus
   http: ^1.2.2
   # Token de sesión (access + refresh) en almacenamiento seguro
   flutter_secure_storage: ^9.2.2

@@ -9,7 +9,7 @@ import '../../models/photo_models.dart';
 import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
-/// Álbum de fotos, conectado a `GET /fotos` del BFF.
+/// Álbum de fotos, conectado al servicio de Álbum a través del bus.
 class PhotoAlbumScreen extends StatelessWidget {
   const PhotoAlbumScreen({super.key});
 
@@ -171,11 +171,29 @@ class _PhotosGrid extends StatelessWidget {
               for (final photo in photos)
                 Stack(
                   children: [
+                    // El color de relleno se ve mientras la miniatura viaja, y
+                    // se queda si el servicio no la pudo entregar.
                     Positioned.fill(
                       child: DecoratedBox(
                         decoration: BoxDecoration(color: photo.swatch, borderRadius: BorderRadius.circular(4)),
                       ),
                     ),
+                    if (photo.thumbnailUrl.isNotEmpty)
+                      Positioned.fill(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: Image.network(
+                            photo.thumbnailUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                            frameBuilder: (_, child, frame, sincrono) => AnimatedOpacity(
+                              opacity: frame == null && !sincrono ? 0 : 1,
+                              duration: const Duration(milliseconds: 200),
+                              child: child,
+                            ),
+                          ),
+                        ),
+                      ),
                     if (photo.favorite)
                       const Positioned(
                         top: 4, right: 4,

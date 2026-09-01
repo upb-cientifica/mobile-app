@@ -57,7 +57,7 @@ class AlertItem {
 
 const List<String> alertFilters = ['Todos', 'Sistema', 'Seguridad', 'Archivos', 'HPC', 'Sync'];
 
-/// Traduce la etiqueta del filtro de UI al `categoria` que espera el BFF.
+/// Traduce la etiqueta del filtro de la interfaz a la categoría de la alerta.
 String? alertFilterToCategoria(String filtro) => switch (filtro) {
       'Sistema' => 'sistema',
       'Seguridad' => 'seguridad',

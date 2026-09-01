@@ -8,7 +8,7 @@ import '../../core/navigation/navigation_controller.dart';
 import '../../core/theme/app_colors.dart';
 
 /// Reproductor de video científico. Usa el paquete `video_player` sobre la URL
-/// (HLS) que entrega `GET /streaming/videos/:id/manifest` del BFF.
+/// (HLS) que entrega el servicio de Streaming a través del bus.
 class VideoPlayerScreen extends StatelessWidget {
   const VideoPlayerScreen({super.key});
 
@@ -123,7 +123,7 @@ class _VideoPlayerView extends StatelessWidget {
                   alignment: Alignment.topLeft,
                   child: Text(
                     'Reproducción servida por el servicio de Streaming del CCA.\n'
-                    'El control de acceso se aplica en el BFF con el token de sesión.',
+                    'El bus autoriza con el token antes de dejar pasar la petición.',
                     style: TextStyle(fontSize: 12, color: Colors.white54, height: 1.5),
                   ),
                 ),

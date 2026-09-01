@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/auth_controller.dart';
 import '../../controllers/dashboard_controller.dart';
+import '../../controllers/network_controller.dart';
 import '../../core/navigation/navigation_controller.dart';
 import '../../core/navigation/screen.dart';
 import '../../core/theme/app_colors.dart';
@@ -30,14 +31,18 @@ const List<_QuickLink> _quickLinks = [
   _QuickLink(Icons.memory, 'HPC', AppColors.purple, AppColors.purpleLight, AppScreen.hpc),
 ];
 
-/// Pantalla principal / dashboard, conectada a `GET /dashboard` del BFF.
+/// Pantalla principal. Resume cuatro servicios a la vez; la agregación la
+/// hace la app, que entra por el bus como cualquier otro consumidor.
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (ctx) => DashboardController(ctx.read<AuthController>().api),
+      create: (ctx) => DashboardController(
+        ctx.read<AuthController>().api,
+        nombreUsuario: ctx.read<AuthController>().user?.nombre ?? '',
+      ),
       child: const _DashboardView(),
     );
   }
@@ -107,7 +112,15 @@ class _DashboardView extends StatelessWidget {
                             ok: c.syncEstado == 'sincronizado',
                           ),
                           const SizedBox(height: 4),
-                          _StatusRow(label: c.enRedLocal ? 'Red UPB activa' : 'Fuera de red UPB', ok: c.enRedLocal),
+                          // El estado de la red lo sabe el observador de
+                          // conectividad, no ningún servicio del sistema.
+                          Builder(builder: (ctx) {
+                            final enWifi = ctx.watch<NetworkController>().onWifi;
+                            return _StatusRow(
+                              label: enWifi ? 'Red UPB activa' : 'Fuera de red UPB',
+                              ok: enWifi,
+                            );
+                          }),
                         ],
                       ),
                     ],

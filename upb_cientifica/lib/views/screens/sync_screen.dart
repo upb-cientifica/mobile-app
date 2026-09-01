@@ -11,7 +11,7 @@ import '../../models/sync_item.dart';
 import '../widgets/async_view.dart';
 import '../widgets/common_widgets.dart';
 
-/// Centro de sincronización, conectado a `GET/POST /sync` del BFF.
+/// Centro de sincronización, sobre la cara REST del servicio de File Sync.
 class SyncScreen extends StatelessWidget {
   const SyncScreen({super.key});
 
@@ -81,20 +81,22 @@ class _SyncView extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: c.loading ? null : c.syncNow,
+                  child: OutlinedButton.icon(
+                    onPressed: c.loading ? null : c.load,
                     icon: const Icon(Icons.refresh, size: 14),
-                    label: const Text('Sincronizar ahora'),
-                    style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
+                    label: const Text('Actualizar'),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: c.loading ? null : c.pause,
-                    icon: const Icon(Icons.pause, size: 14),
-                    label: const Text('Pausar'),
-                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
+                  child: ElevatedButton.icon(
+                    onPressed: c.loading || !c.hayConflictos
+                        ? null
+                        : () => _abrirConflictos(context, c),
+                    icon: const Icon(Icons.merge_type, size: 14),
+                    label: Text(c.hayConflictos ? 'Resolver (${c.conflictos.length})' : 'Sin conflictos'),
+                    style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
                   ),
                 ),
               ],
@@ -121,6 +123,87 @@ class _SyncView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Hoja de resolución de conflictos.
+///
+/// Es la única escritura que la cara REST del servicio expone, y la que hace
+/// útil llevar la sincronización en el bolsillo: el conflicto se decide donde
+/// esté la persona, no donde esté su portátil.
+Future<void> _abrirConflictos(BuildContext context, SyncController c) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+    ),
+    builder: (sheetCtx) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('Conflictos de versión',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+          const SizedBox(height: 4),
+          const Text(
+            'El mismo archivo cambió en dos sitios a la vez. Elige con cuál quedarte.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          for (final k in c.conflictos) ...[
+            AppCard(
+              radius: AppRadius.md,
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${k['nombre'] ?? k['ruta']}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text('${k['dispositivo']} · versión del servidor ${k['versionServidor']}',
+                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      for (final (etiqueta, estrategia) in const [
+                        ('Dispositivo', 'local'),
+                        ('Servidor', 'servidor'),
+                        ('Ambos', 'ambos'),
+                      ]) ...[
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () async {
+                              final messenger = ScaffoldMessenger.of(context);
+                              Navigator.of(sheetCtx).pop();
+                              try {
+                                await c.resolver('${k['id']}', estrategia);
+                                messenger.showSnackBar(
+                                    const SnackBar(content: Text('Conflicto resuelto')));
+                              } catch (e) {
+                                messenger.showSnackBar(SnackBar(content: Text('$e')));
+                              }
+                            },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              textStyle: const TextStyle(fontSize: 12),
+                            ),
+                            child: Text(etiqueta),
+                          ),
+                        ),
+                        if (estrategia != 'ambos') const SizedBox(width: 6),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 class _SyncTile extends StatelessWidget {

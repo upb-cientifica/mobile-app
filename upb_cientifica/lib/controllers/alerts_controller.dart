@@ -1,15 +1,23 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/api_client.dart';
+import '../data/alertas_leidas.dart';
+import '../data/api.dart';
 import '../models/alert_item.dart';
 import 'async_state.dart';
 
+/// Alertas del sistema.
+///
+/// Vienen del Monitoreo, que evalúa reglas de umbral sobre las métricas y las
+/// sondas de disponibilidad. El estado "leída" no viene de allí —es de esta
+/// persona en este teléfono— y lo lleva [AlertasLeidas].
 class AlertsController extends ChangeNotifier with AsyncState {
-  AlertsController(this._api) {
+  AlertsController(this._api, {AlertasLeidas? leidas})
+      : _leidas = leidas ?? AlertasLeidas() {
     load();
   }
 
-  final ApiClient _api;
+  final Api _api;
+  final AlertasLeidas _leidas;
 
   String _filter = 'Todos';
   List<AlertItem> _alerts = const [];
@@ -21,12 +29,14 @@ class AlertsController extends ChangeNotifier with AsyncState {
   int get unreadCount => _unread;
 
   Future<void> load() => run(() async {
-        final j = Map<String, dynamic>.from(await _api.get('/alertas',
-            query: {'categoria': alertFilterToCategoria(_filter)}) as Map);
-        _alerts = (j['alertas'] as List? ?? [])
-            .map((e) => AlertItem.fromApi(Map<String, dynamic>.from(e as Map)))
+        final crudas = await _api.monitoreo.alertas(
+          categoria: alertFilterToCategoria(_filter),
+        );
+        final vistas = await _leidas.leidas();
+        _alerts = crudas
+            .map((a) => AlertItem.fromApi({...a, 'leida': vistas.contains('${a['id']}')}))
             .toList();
-        _unread = (j['noLeidas'] as num?)?.toInt() ?? 0;
+        _unread = _alerts.where((a) => !a.read).length;
       });
 
   void setFilter(String filter) {
@@ -35,12 +45,12 @@ class AlertsController extends ChangeNotifier with AsyncState {
   }
 
   Future<void> markAllRead() async {
-    await _api.post('/alertas/marcar-todas');
+    await _leidas.marcar(_alerts.map((a) => a.id));
     await load();
   }
 
   Future<void> markRead(String id) async {
-    await _api.post('/alertas/$id/leer');
+    await _leidas.marcar([id]);
     await load();
   }
 }

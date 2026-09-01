@@ -1,25 +1,30 @@
 import 'package:flutter/material.dart';
 
-import '../data/api_client.dart';
+import '../data/api.dart';
 import '../data/api_exception.dart';
+import '../data/servicios/usuarios.dart';
 import '../data/session_user.dart';
 import '../data/token_store.dart';
 
 enum AuthStage { comprobando, desconectado, mfaPendiente, conectado }
 
-/// Controlador de sesión de la app: login, verificación en dos pasos,
-/// perfil vigente y cierre de sesión. Vive a nivel de aplicación.
+/// Controlador de sesión de la app: login, perfil vigente y cierre de sesión.
+/// Vive a nivel de aplicación y es el dueño del [Api] que usan los demás.
+///
+/// La autenticación la resuelve el **directorio de usuarios**, un servicio SOAP
+/// al que se llega por el bus. El token que devuelve es el mismo que verifican
+/// todos los demás servicios: hay una sola autoridad de identidad en el sistema.
 class AuthController extends ChangeNotifier {
-  AuthController({ApiClient? api, TokenStore? tokens})
+  AuthController({Api? api, TokenStore? tokens})
       : _tokens = tokens ?? TokenStore(),
-        _api = api ?? ApiClient() {
+        _api = api ?? Api() {
     _api.onSessionExpired = _onExpired;
   }
 
-  final ApiClient _api;
+  final Api _api;
   final TokenStore _tokens;
 
-  ApiClient get api => _api;
+  Api get api => _api;
 
   AuthStage _stage = AuthStage.comprobando;
   AuthStage get stage => _stage;
@@ -33,9 +38,6 @@ class AuthController extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
-  // Guarda las credenciales entre login y verificación MFA.
-  String? _pendingEmail;
-  String? _pendingPassword;
   bool _rememberDevice = false;
 
   /// Restaura la sesión al arrancar la app.
@@ -44,8 +46,7 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
     if (await _tokens.hasSession) {
       try {
-        _user = SessionUser.fromJson(
-            Map<String, dynamic>.from(await _api.get('/auth/me') as Map));
+        _user = await _api.usuarios.miPerfil();
         _stage = AuthStage.conectado;
       } catch (_) {
         await _tokens.clear();
@@ -57,26 +58,15 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Paso 1: valida correo/contraseña contra el BFF.
+  /// Valida correo/contraseña contra el directorio y abre la sesión.
   Future<void> login(String correo, String password,
       {bool rememberDevice = false}) async {
     _setBusy(true);
     _rememberDevice = rememberDevice;
     try {
-      final data = Map<String, dynamic>.from(
-        await _api.post('/auth/login',
-            body: {'correo': correo.trim(), 'password': password}) as Map,
-      );
-      // El BFF puede pedir un segundo factor; si no, entrega tokens directo.
-      if (data['requiereMfa'] == true) {
-        _pendingEmail = correo.trim();
-        _pendingPassword = password;
-        _stage = AuthStage.mfaPendiente;
-      } else {
-        await _persistSession(data);
-      }
+      await _persistSession(await _api.usuarios.login(correo, password));
     } on ApiException catch (e) {
-      _error = e.esCredenciales
+      _error = e.esCredenciales || e.status == 401
           ? 'Correo o contraseña incorrectos'
           : e.mensaje;
       rethrow;
@@ -85,58 +75,35 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Paso 2 (si aplica): reenvía las credenciales con el código de 6 dígitos.
-  /// Mientras el Authentication Server no exista, el BFF acepta el login sin
-  /// segundo factor y este paso simplemente completa la sesión.
+  /// El directorio autentica con token y no tiene segundo factor: no hay
+  /// servidor de autenticación aparte al que pedirle un código. La etapa
+  /// [AuthStage.mfaPendiente] queda declarada pero nunca se entra en ella.
   Future<void> verifyMfa(String codigo) async {
-    _setBusy(true);
-    try {
-      final data = Map<String, dynamic>.from(
-        await _api.post('/auth/login', body: {
-          'correo': _pendingEmail,
-          'password': _pendingPassword,
-          'codigoMfa': codigo,
-        }) as Map,
-      );
-      await _persistSession(data);
-    } on ApiException catch (e) {
-      _error = e.mensaje;
-      rethrow;
-    } finally {
-      _setBusy(false);
-    }
+    _error = 'El sistema autentica con token; no hay verificación en dos pasos.';
+    notifyListeners();
+    throw ApiException(_error!);
   }
 
   Future<void> logout() async {
     try {
-      await _api.post('/auth/logout');
-    } catch (_) {/* idempotente */}
+      await _api.usuarios.cerrarSesion();
+    } catch (_) {/* idempotente: la sesión local se cierra igual */}
     await _tokens.clear();
     _user = null;
-    _pendingEmail = _pendingPassword = null;
     _stage = AuthStage.desconectado;
     notifyListeners();
   }
 
   Future<void> refreshProfile() async {
     try {
-      _user = SessionUser.fromJson(
-          Map<String, dynamic>.from(await _api.get('/auth/me') as Map));
+      _user = await _api.usuarios.miPerfil();
       notifyListeners();
     } catch (_) {/* mantiene el perfil previo */}
   }
 
-  Future<void> _persistSession(Map<String, dynamic> data) async {
-    await _tokens.save(
-      access: data['accessToken'] as String,
-      refresh: data['refreshToken'] as String,
-    );
-    final u = data['usuario'];
-    _user = u is Map
-        ? SessionUser.fromJson(Map<String, dynamic>.from(u))
-        : SessionUser.fromJson(
-            Map<String, dynamic>.from(await _api.get('/auth/me') as Map));
-    _pendingEmail = _pendingPassword = null;
+  Future<void> _persistSession(Sesion s) async {
+    await _tokens.save(access: s.accessToken, refresh: s.refreshToken);
+    _user = s.usuario;
     _stage = AuthStage.conectado;
     notifyListeners();
     // ignore: unnecessary_statements

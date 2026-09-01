@@ -123,10 +123,7 @@ class _FilesView extends StatelessWidget {
                   const SectionLabel('Carpetas'),
                   const SizedBox(height: 8),
                   for (final folder in controller.folders) ...[
-                    GestureDetector(
-                      onTap: () => controller.openFolder(folder),
-                      child: _FolderTile(folder: folder),
-                    ),
+                    _FolderTile(folder: folder, onTap: () => controller.openFolder(folder)),
                     const SizedBox(height: 6),
                   ],
                   const SizedBox(height: 10),
@@ -190,16 +187,17 @@ class _ToggleIconButton extends StatelessWidget {
 }
 
 class _FolderTile extends StatelessWidget {
-  const _FolderTile({required this.folder});
+  const _FolderTile({required this.folder, required this.onTap});
 
   final FolderEntry folder;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
       radius: AppRadius.md,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      onTap: () {},
+      onTap: onTap,
       child: Row(
         children: [
           const Icon(Icons.folder, color: AppColors.warning, size: 22),
@@ -210,7 +208,11 @@ class _FolderTile extends StatelessWidget {
               children: [
                 Text(folder.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
                 const SizedBox(height: 2),
-                Text('${folder.fileCount} archivos · ${folder.modified}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                // El servicio no cuenta los hijos de cada carpeta —lo haría
+                // recorriendo el árbol entero en cada listado—, así que se
+                // muestra la fecha, que sí viene con el nodo.
+                Text(folder.modified.isEmpty ? 'Carpeta' : folder.modified,
+                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
               ],
             ),
           ),

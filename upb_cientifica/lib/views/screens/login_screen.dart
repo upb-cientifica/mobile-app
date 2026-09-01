@@ -7,7 +7,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/logo_mark.dart';
 
-/// Pantalla de inicio de sesión conectada al BFF vía [AuthController].
+/// Pantalla de inicio de sesión. Autentica contra el directorio de usuarios
+/// (SOAP) a través del bus, vía [AuthController].
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
@@ -156,13 +157,17 @@ class _LoginView extends StatelessWidget {
                     color: AppColors.blueLight,
                     borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
+                  // El sistema no usa TLS: viaja por la red interna del CCA en
+                  // claro. Lo que sí protege la sesión es el token firmado
+                  // (JWT RS256) que emite el directorio y que cada servicio
+                  // verifica por su cuenta. Decir "TLS 1.3" aquí sería mentir.
                   child: const Row(
                     children: [
                       Icon(Icons.lock_outline, size: 16, color: AppColors.blue),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Cifrado extremo a extremo · TLS 1.3',
+                          'Sesión con token firmado · red interna UPB',
                           style: TextStyle(fontSize: 12, color: AppColors.blue),
                         ),
                       ),

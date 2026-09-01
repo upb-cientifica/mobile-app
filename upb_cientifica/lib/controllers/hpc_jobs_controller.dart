@@ -1,15 +1,19 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/api_client.dart';
+import '../data/api.dart';
 import '../models/hpc_job.dart';
 import 'async_state.dart';
 
+/// Cola de trabajos del clúster.
+///
+/// Detrás de cada lectura hay una invocación sobre un objeto Java RMI que el
+/// bus hace por cuenta de la app.
 class HpcJobsController extends ChangeNotifier with AsyncState {
   HpcJobsController(this._api) {
     load();
   }
 
-  final ApiClient _api;
+  final Api _api;
 
   String _filter = 'Todos';
   String get filter => _filter;
@@ -20,16 +24,12 @@ class HpcJobsController extends ChangeNotifier with AsyncState {
   List<HpcJob> get filteredJobs => jobs;
 
   Future<void> load() => run(() async {
-        final j = Map<String, dynamic>.from(await _api.get('/hpc/trabajos',
-            query: {'estado': hpcFilterToApi(_filter)}) as Map);
-        jobs = (j['trabajos'] as List? ?? [])
-            .map((e) => HpcJob.fromApi(Map<String, dynamic>.from(e as Map)))
-            .toList();
-        final c = Map<String, dynamic>.from(j['conteo'] as Map? ?? {});
-        enCola = (c['cola'] as num?)?.toInt() ?? 0;
-        ejecutando = (c['ejecutando'] as num?)?.toInt() ?? 0;
-        completados = (c['completados'] as num?)?.toInt() ?? 0;
-        fallidos = (c['fallidos'] as num?)?.toInt() ?? 0;
+        final t = await _api.hpc.listar(filtro: hpcFilterToApi(_filter));
+        jobs = t.trabajos.map(HpcJob.fromApi).toList();
+        enCola = t.conteo['cola'] ?? 0;
+        ejecutando = t.conteo['ejecutando'] ?? 0;
+        completados = t.conteo['completados'] ?? 0;
+        fallidos = t.conteo['fallidos'] ?? 0;
       });
 
   void setFilter(String filter) {

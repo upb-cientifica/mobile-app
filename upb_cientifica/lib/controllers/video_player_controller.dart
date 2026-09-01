@@ -1,13 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
-import '../data/api_client.dart';
+import '../data/api.dart';
 
-/// Controla la reproducción real de un video servido por el BFF (HLS).
+/// Reproducción real de un video del servicio de Streaming (HLS).
+///
+/// El manifiesto entra por el bus; sus segmentos van referenciados de forma
+/// relativa, así que resuelven contra esa misma URL y siguen pasando por el
+/// bus. El servicio les añade el token al servir la lista, porque el
+/// reproductor pide cada segmento sin encabezados.
 class VideoPlaybackController extends ChangeNotifier {
   VideoPlaybackController(this._api, {this.videoId});
 
-  final ApiClient _api;
+  final Api _api;
   final String? videoId;
 
   VideoPlayerController? _player;
@@ -28,11 +33,20 @@ class VideoPlaybackController extends ChangeNotifier {
 
   Future<void> init() async {
     try {
-      String url = 'https://upb.local/streaming/demo/index.m3u8';
-      if (videoId != null) {
-        final j = Map<String, dynamic>.from(
-            await _api.get('/streaming/videos/$videoId/manifest') as Map);
-        url = j['url'] as String? ?? url;
+      if (videoId == null) {
+        _error = 'No se indicó qué video reproducir.';
+        _loading = false;
+        notifyListeners();
+        return;
+      }
+      final url = await _api.video.manifiesto(videoId!);
+      if (url == null) {
+        // El servicio transcodifica con ffmpeg al subir: un video recién
+        // publicado todavía no tiene su playlist.
+        _error = 'El video aún se está procesando. Inténtalo en unos minutos.';
+        _loading = false;
+        notifyListeners();
+        return;
       }
       final p = VideoPlayerController.networkUrl(Uri.parse(url));
       _player = p;
@@ -41,9 +55,7 @@ class VideoPlaybackController extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     } catch (e) {
-      // El servicio de Streaming real aún no existe; se muestra el estado de error
-      // de la UI (reproductor no disponible) en lugar de un crash.
-      _error = 'El servicio de Streaming no está disponible.';
+      _error = 'No se pudo reproducir el video: $e';
       _loading = false;
       notifyListeners();
     }

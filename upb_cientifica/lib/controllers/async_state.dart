@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/api_exception.dart';
 
-/// Estado de carga compartido por los controladores que leen del BFF.
+/// Estado de carga compartido por los controladores que leen del bus.
 mixin AsyncState on ChangeNotifier {
   bool _loading = false;
   bool _loadedOnce = false;

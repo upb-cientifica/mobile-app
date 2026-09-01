@@ -9,10 +9,10 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 
-const List<String> _stepLabels = ['Información', 'Archivos', 'Configuración', 'Confirmación'];
+const List<String> _stepLabels = ['Información', 'Programa', 'Recursos', 'Confirmación'];
 
-/// Formulario de creación de un trabajo HPC en 4 pasos. En el último paso
-/// envía el trabajo al clúster vía `POST /hpc/trabajos` del BFF.
+/// Formulario de envío de un trabajo al clúster, en 4 pasos. El último encola
+/// el trabajo llamando por el bus al objeto remoto `ClusterHpc` (Java RMI).
 class CreateJobScreen extends StatelessWidget {
   const CreateJobScreen({super.key});
 
@@ -189,84 +189,65 @@ class _StepInfo extends StatelessWidget {
           controller: c.nombre,
           decoration: const InputDecoration(hintText: 'ej. Simulación Monte Carlo v3', filled: true, fillColor: AppColors.white),
         ),
-        const SizedBox(height: 14),
-        const _FormLabel('Descripción'),
-        TextField(
-          controller: c.descripcion,
-          maxLines: 3,
-          decoration: const InputDecoration(hintText: 'Describe el objetivo científico…', filled: true, fillColor: AppColors.white),
-        ),
-        const SizedBox(height: 14),
-        const _FormLabel('Proyecto relacionado'),
-        TextField(
-          controller: c.proyecto,
-          decoration: const InputDecoration(hintText: 'ej. clima, genomica…', filled: true, fillColor: AppColors.white),
+        const SizedBox(height: 8),
+        const Text(
+          'Es el nombre con el que aparecerá en la cola del clúster y en la '
+          'consola del equipo.',
+          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
         ),
       ],
     );
   }
 }
 
-class _FileOption {
-  const _FileOption(this.icon, this.label, this.sub, this.color, this.bg, this.selected);
-
-  final IconData icon;
-  final String label;
-  final String sub;
-  final Color color;
-  final Color bg;
-  final bool selected;
-}
-
+/// El programa a ejecutar y de dónde tomarlo.
+///
+/// El clúster corre el comando con `mpirun` dentro de la carpeta indicada del
+/// Home, que es donde ya viven el código y los datos: no hay que volver a
+/// subirlos desde el teléfono.
 class _StepFiles extends StatelessWidget {
   const _StepFiles();
 
-  static const List<_FileOption> _items = [
-    _FileOption(Icons.upload_outlined, 'Cargar código fuente', 'Arrastra o selecciona .py, .cpp, .f90…', AppColors.blue, AppColors.blueLight, false),
-    _FileOption(Icons.storage, 'Conjunto de datos', 'datos_sensores.csv (2.4 MB)', AppColors.success, AppColors.successLight, true),
-    _FileOption(Icons.folder_open_outlined, 'Archivos del repositorio', '3 archivos seleccionados', AppColors.purple, AppColors.purpleLight, true),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final c = context.read<CreateJobController>();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _StepTitle('Archivos del trabajo'),
-        for (final item in _items) ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: item.selected ? item.color : AppColors.border, width: 1.5),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: item.bg, borderRadius: BorderRadius.circular(AppRadius.sm)),
-                  child: Icon(item.icon, size: 20, color: item.color),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(item.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
-                      const SizedBox(height: 2),
-                      Text(item.sub, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                    ],
-                  ),
-                ),
-                if (item.selected) Icon(Icons.check, size: 16, color: item.color),
-              ],
-            ),
+        const _StepTitle('Programa a ejecutar'),
+        const _FormLabel('Comando'),
+        TextField(
+          controller: c.comando,
+          style: const TextStyle(fontFamily: monoFontFamily, fontSize: 13),
+          decoration: const InputDecoration(
+            hintText: './simulacion.out --iteraciones 1000',
+            filled: true,
+            fillColor: AppColors.white,
           ),
-          const SizedBox(height: 14),
-        ],
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'El ejecutable con sus argumentos, tal como se lo pasarías a mpirun.',
+          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 14),
+        const _FormLabel('Carpeta del repositorio'),
+        TextField(
+          controller: c.rutaHome,
+          style: const TextStyle(fontFamily: monoFontFamily, fontSize: 13),
+          decoration: const InputDecoration(
+            hintText: '/proyectos/clima',
+            filled: true,
+            fillColor: AppColors.white,
+            prefixIcon: Icon(Icons.folder_open_outlined, size: 18, color: AppColors.textMuted),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Carpeta de tu Home con el código y los datos. El clúster los toma de '
+          'ahí y deja los resultados en el mismo sitio.',
+          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+        ),
       ],
     );
   }
@@ -275,51 +256,72 @@ class _StepFiles extends StatelessWidget {
 class _StepConfig extends StatelessWidget {
   const _StepConfig();
 
-  static const List<List<String>> _fields = [
-    ['Lenguaje', 'Python 3.11'],
-    ['Procesos MPI', '64'],
-    ['Núcleos por proceso', '4'],
-    ['Memoria (GB)', '128'],
-    ['Tiempo máximo (h)', '12'],
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final c = context.watch<CreateJobController>();
+    final slots = c.slotsDisponibles;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _StepTitle('Configuración de recursos'),
-        for (final f in _fields) ...[
-          _FormLabel(f[0]),
-          TextField(controller: TextEditingController(text: f[1]), decoration: const InputDecoration(filled: true, fillColor: AppColors.white)),
-          const SizedBox(height: 14),
-        ],
-        const _FormLabel('Prioridad'),
+        const _StepTitle('Recursos'),
+        const _FormLabel('Procesos MPI'),
         Row(
           children: [
-            for (final p in ['Baja', 'Normal', 'Alta']) ...[
+            IconButton.outlined(
+              onPressed: c.procesos > 1 ? () => c.setProcesos(c.procesos - 1) : null,
+              icon: const Icon(Icons.remove, size: 18),
+            ),
+            Expanded(
+              child: Text(
+                '${c.procesos}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              ),
+            ),
+            IconButton.outlined(
+              onPressed: () => c.setProcesos(c.procesos + 1),
+              icon: const Icon(Icons.add, size: 18),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: slots == null
+                ? AppColors.white
+                : (c.procesos > slots ? AppColors.warningLight : AppColors.blueLight),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                slots == null ? Icons.help_outline : (c.procesos > slots ? Icons.schedule : Icons.check),
+                size: 16,
+                color: slots == null
+                    ? AppColors.textMuted
+                    : (c.procesos > slots ? AppColors.warning : AppColors.blue),
+              ),
+              const SizedBox(width: 8),
               Expanded(
-                child: Container(
-                  height: 40,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: p == 'Normal' ? AppColors.blueLight : AppColors.white,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    border: Border.all(color: p == 'Normal' ? AppColors.blue : AppColors.border, width: 1.5),
-                  ),
-                  child: Text(
-                    p,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: p == 'Normal' ? AppColors.blue : AppColors.textSecondary,
-                      fontWeight: p == 'Normal' ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                  ),
+                child: Text(
+                  switch (slots) {
+                    null => 'No se pudo consultar la disponibilidad del clúster.',
+                    _ when c.procesos > slots =>
+                      'Hay $slots ranuras libres: el trabajo esperará en cola hasta que se liberen.',
+                    _ => 'Hay $slots ranuras libres: el trabajo puede arrancar de inmediato.',
+                  },
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
               ),
-              if (p != 'Alta') const SizedBox(width: 8),
             ],
-          ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'El planificador reparte por ranuras de nodo: no se piden núcleos, '
+          'memoria ni tiempo máximo por separado.',
+          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
         ),
       ],
     );
@@ -329,18 +331,15 @@ class _StepConfig extends StatelessWidget {
 class _StepConfirm extends StatelessWidget {
   const _StepConfirm();
 
-  static const List<List<String>> _summary = [
-    ['Nombre', 'Simulación Monte Carlo v3'],
-    ['Lenguaje', 'Python 3.11'],
-    ['Procesos MPI', '64'],
-    ['Núcleos totales', '256'],
-    ['Memoria', '128 GB'],
-    ['Tiempo máximo', '12 horas'],
-    ['Prioridad', 'Normal'],
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final c = context.watch<CreateJobController>();
+    final resumen = [
+      ['Nombre', c.nombre.text.trim()],
+      ['Comando', c.comando.text.trim()],
+      ['Carpeta', c.rutaHome.text.trim()],
+      ['Procesos MPI', '${c.procesos}'],
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -351,21 +350,29 @@ class _StepConfirm extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionLabel('Recursos solicitados'),
+              const SectionLabel('Se enviará al clúster'),
               const SizedBox(height: 10),
-              for (var i = 0; i < _summary.length; i++)
+              for (var i = 0; i < resumen.length; i++)
                 Padding(
-                  padding: EdgeInsets.only(bottom: i < _summary.length - 1 ? 8 : 0),
+                  padding: EdgeInsets.only(bottom: i < resumen.length - 1 ? 8 : 0),
                   child: Container(
-                    padding: EdgeInsets.only(bottom: i < _summary.length - 1 ? 8 : 0),
-                    decoration: i < _summary.length - 1
+                    padding: EdgeInsets.only(bottom: i < resumen.length - 1 ? 8 : 0),
+                    decoration: i < resumen.length - 1
                         ? const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.divider)))
                         : null,
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(_summary[i][0], style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                        Text(_summary[i][1], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
+                        Text(resumen[i][0], style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            resumen[i][1].isEmpty ? '—' : resumen[i][1],
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -376,12 +383,18 @@ class _StepConfirm extends StatelessWidget {
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(color: AppColors.successLight, borderRadius: BorderRadius.circular(AppRadius.md)),
+          decoration: BoxDecoration(color: AppColors.blueLight, borderRadius: BorderRadius.circular(AppRadius.md)),
           child: const Row(
             children: [
-              Icon(Icons.check, size: 16, color: AppColors.success),
+              Icon(Icons.hub_outlined, size: 16, color: AppColors.blue),
               SizedBox(width: 8),
-              Text('Código validado correctamente', style: TextStyle(fontSize: 13, color: AppColors.success, fontWeight: FontWeight.w500)),
+              Expanded(
+                child: Text(
+                  'El trabajo entra por el bus de servicios, que lo traduce a una '
+                  'invocación Java RMI sobre el clúster.',
+                  style: TextStyle(fontSize: 12, color: AppColors.blue),
+                ),
+              ),
             ],
           ),
         ),

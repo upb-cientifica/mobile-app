@@ -11,7 +11,7 @@ import '../widgets/common_widgets.dart';
 import '../widgets/logo_mark.dart';
 
 /// Vista de administrador. Usuarios vía SOAP (`/admin/usuarios`), nodos y
-/// auditoría desde la base del BFF.
+/// auditoría (sesiones abiertas) desde el propio directorio.
 class AdminScreen extends StatelessWidget {
   const AdminScreen({super.key});
 
@@ -132,7 +132,7 @@ class _AdminView extends StatelessWidget {
                           }),
                           const SizedBox(width: 8),
                           Expanded(child: Text('${n['nombre']}', style: const TextStyle(fontSize: 12, color: AppColors.textPrimary))),
-                          Text('CPU ${(n['cpuPct'] as num?)?.toStringAsFixed(0) ?? 0}%  ·  ${n['trabajos'] ?? 0} jobs',
+                          Text('${n['slots'] ?? 0} ranuras',
                               style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                         ],
                       ),

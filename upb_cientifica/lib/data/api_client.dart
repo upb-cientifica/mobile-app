@@ -7,11 +7,17 @@ import 'api_exception.dart';
 import 'env.dart';
 import 'token_store.dart';
 
-/// Cliente HTTP hacia el BFF.
+/// Cliente HTTP hacia el **Service Bus**.
+///
+/// Es el único punto de la app que abre una conexión de red. Toda ruta que pasa
+/// por aquí tiene la forma `/{servicio}/{operación}`; el bus resuelve dónde vive
+/// ese servicio, comprueba el claim del JWT y traduce el protocolo del destino.
 ///
 /// - Adjunta `Authorization: Bearer <accessToken>`.
 /// - Ante un 401, intenta **una** renovación con el refresh token y reintenta.
-/// - Desenvuelve la envoltura `{ "data": ... }` / `{ "error": {...} }`.
+/// - Desenvuelve la envoltura `{ "data": … }` / `{ "error": {…} }` del bus.
+/// - Conserva el `X-Bus-Correlacion` de los errores: con ese número se
+///   encuentra el mensaje exacto en la bitácora del bus.
 class ApiClient {
   ApiClient({TokenStore? tokenStore, http.Client? httpClient})
       : _tokens = tokenStore ?? TokenStore(),
@@ -26,32 +32,44 @@ class ApiClient {
   Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
       _send('GET', path, query: query);
 
-  Future<dynamic> post(String path, {Object? body}) =>
-      _send('POST', path, body: body);
+  /// El bus pasa los parámetros de consulta al mediador, que los convierte en
+  /// elementos del sobre SOAP o en argumentos de la invocación RMI. Por eso la
+  /// mayoría de las escrituras viajan en `query` y no en el cuerpo.
+  Future<dynamic> post(String path, {Map<String, dynamic>? query, Object? body}) =>
+      _send('POST', path, query: query, body: body);
 
-  Future<dynamic> patch(String path, {Object? body}) =>
-      _send('PATCH', path, body: body);
+  Future<dynamic> patch(String path, {Map<String, dynamic>? query, Object? body}) =>
+      _send('PATCH', path, query: query, body: body);
+
+  Future<dynamic> put(String path, {Map<String, dynamic>? query, Object? body}) =>
+      _send('PUT', path, query: query, body: body);
 
   Future<dynamic> delete(String path, {Map<String, dynamic>? query}) =>
       _send('DELETE', path, query: query);
 
-  /// Envía un archivo como `multipart/form-data`.
-  Future<dynamic> uploadMultipart(
+  /// Sube el contenido de un archivo como cuerpo binario.
+  ///
+  /// El Home compartido recibe los bytes tal cual —no multipart— y toma el
+  /// nombre y la carpeta de la cadena de consulta. El bus reenvía el cuerpo sin
+  /// tocarlo, así que el archivo llega íntegro al servicio.
+  Future<dynamic> subirArchivo(
     String path, {
-    required String field,
-    required String filename,
+    required Map<String, dynamic> query,
     required List<int> bytes,
-    Map<String, String> fields = const {},
     bool retry = true,
   }) async {
-    final req = http.MultipartRequest('POST', _uri(path, null))
-      ..fields.addAll(fields)
-      ..files.add(http.MultipartFile.fromBytes(field, bytes, filename: filename));
+    final headers = <String, String>{
+      'accept': 'application/json',
+      'content-type': 'application/octet-stream',
+    };
     final access = await _tokens.accessToken;
-    if (access != null) req.headers['authorization'] = 'Bearer $access';
+    if (access != null) headers['authorization'] = 'Bearer $access';
 
     http.Response res;
     try {
+      final req = http.Request('POST', _uri(path, query))
+        ..headers.addAll(headers)
+        ..bodyBytes = bytes;
       res = await http.Response.fromStream(
         await _http.send(req).timeout(const Duration(seconds: 60)),
       );
@@ -59,17 +77,39 @@ class ApiClient {
       throw ApiException('No se pudo subir el archivo.');
     }
     if (res.statusCode == 401 && retry && await _refresh()) {
-      return uploadMultipart(path,
-          field: field, filename: filename, bytes: bytes, fields: fields, retry: false);
+      return subirArchivo(path, query: query, bytes: bytes, retry: false);
     }
     return _decode(res);
   }
 
+  /// Encabezados de autenticación para widgets que descargan por su cuenta,
+  /// como `Image.network`.
+  Future<Map<String, String>> get authHeaders async {
+    final access = await _tokens.accessToken;
+    return access == null ? const {} : {'authorization': 'Bearer $access'};
+  }
+
+  /// Token de acceso vigente. Sirve para construir muchas URLs de descarga sin
+  /// volver al almacén seguro por cada una.
+  Future<String?> get accessToken => _tokens.accessToken;
+
+  /// URL absoluta a través del bus, con [token] en la cadena de consulta.
+  ///
+  /// Hace falta para HLS: el reproductor pide los segmentos por su cuenta y no
+  /// se puede garantizar que arrastre los encabezados en las dos plataformas.
+  /// Tanto el bus como el servicio de Streaming aceptan `?token=` por esto.
+  String urlCon(String path, String? token, {Map<String, dynamic>? query}) =>
+      _uri(path, {...?query, 'token': ?token}).toString();
+
+  /// Igual que [urlCon], leyendo el token del almacén seguro.
+  Future<String> urlConToken(String path, {Map<String, dynamic>? query}) async =>
+      urlCon(path, await _tokens.accessToken, query: query);
+
   Uri _uri(String path, Map<String, dynamic>? query) {
-    final base = Uri.parse(Env.apiBaseUrl);
+    final base = Uri.parse(Env.busUrl);
     final q = <String, String>{};
     query?.forEach((k, v) {
-      if (v != null) q[k] = '$v';
+      if (v != null && '$v'.isNotEmpty) q[k] = '$v';
     });
     return base.replace(
       path: '${base.path}$path',
@@ -102,7 +142,7 @@ class ApiClient {
     } on TimeoutException {
       throw ApiException('La solicitud tardó demasiado. Revisa tu conexión.');
     } catch (e) {
-      throw ApiException('No se pudo conectar con el servidor UPB.');
+      throw ApiException('No se pudo conectar con el bus de servicios UPB.');
     }
 
     if (res.statusCode == 401 && retry) {
@@ -135,25 +175,32 @@ class ApiClient {
           'Error ${res.statusCode}',
       status: res.statusCode,
       codigo: (err is Map ? err['codigo'] : null)?.toString(),
+      correlacion: res.headers['x-bus-correlacion'],
     );
   }
 
+  /// Renueva la sesión contra el directorio de usuarios.
+  ///
+  /// `renovarToken` es una de las dos operaciones que el bus deja pasar sin
+  /// token —la otra es `login`—, porque de lo contrario no habría forma de
+  /// obtener uno.
   Future<bool> _refresh() async {
     final refresh = await _tokens.refreshToken;
     if (refresh == null) return false;
     try {
       final res = await _http
           .post(
-            _uri('/auth/refresh', null),
-            headers: {'content-type': 'application/json'},
-            body: jsonEncode({'refreshToken': refresh}),
+            _uri('/${Servicios.usuarios}/renovarToken', {'refreshToken': refresh}),
+            headers: {'accept': 'application/json'},
           )
           .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return false;
       final data = jsonDecode(utf8.decode(res.bodyBytes))['data'] as Map;
+      final nuevo = data['accessToken'] as String?;
+      if (nuevo == null || nuevo.isEmpty) return false;
       await _tokens.save(
-        access: data['accessToken'] as String,
-        refresh: (data['refreshToken'] ?? refresh) as String,
+        access: nuevo,
+        refresh: (data['refreshToken'] as String?) ?? refresh,
       );
       return true;
     } catch (_) {
