@@ -113,12 +113,26 @@ class ServicioArchivos {
   Future<List<Map<String, dynamic>>> versiones(String ruta) async =>
       comoLista(await _api.get('/$_s/files/versiones', query: {'ruta': ruta}));
 
+  /// Permisos del nodo: dueño, grupo, los tres tríos rwx y con quién está
+  /// compartido.
   Future<Map<String, dynamic>> permisos(String ruta) async =>
       comoMapa(await _api.get('/$_s/files/permisos', query: {'ruta': ruta}));
+
+  /// Cambia el modo Unix. Cada parámetro es un dígito octal (0..7): el servicio
+  /// conserva el que no se envíe. Sólo el propietario o un administrador puede.
+  Future<void> cambiarPermisos(String ruta,
+          {required int owner, required int group, required int others}) =>
+      _api.put('/$_s/files/permisos',
+          query: {'ruta': ruta, 'owner': owner, 'group': group, 'others': others});
 
   Future<void> compartir(String ruta, String correo, {String permiso = 'lectura'}) =>
       _api.post('/$_s/files/compartir',
           query: {'ruta': ruta, 'correo': correo, 'permiso': permiso});
+
+  /// Retira el acceso de [correo] al nodo.
+  Future<void> dejarDeCompartir(String ruta, String correo) =>
+      _api.post('/$_s/files/compartir',
+          query: {'ruta': ruta, 'correo': correo, 'accion': 'revoke'});
 
   /// URL de descarga con el token incrustado, para abrir o previsualizar.
   Future<String> urlDescarga(String ruta) =>

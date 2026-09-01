@@ -117,47 +117,54 @@ class _VideoTile extends StatelessWidget {
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(boxShadow: cardShadow),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 80,
-                color: video.color,
-                alignment: Alignment.center,
-                child: Text(video.emoji, style: const TextStyle(fontSize: 28)),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        video.title,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary, height: 1.3),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text('${video.author} · ${video.project}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          const Icon(Icons.access_time, size: 10, color: AppColors.textMuted),
-                          const SizedBox(width: 3),
-                          Text(video.duration, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
-                          const SizedBox(width: 8),
-                          const Icon(Icons.lock_outline, size: 10, color: AppColors.textMuted),
-                          const SizedBox(width: 3),
-                          Text(video.access, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
-                        ],
-                      ),
-                    ],
+          // La franja de color de la izquierda va de arriba abajo, y para eso
+          // el Row usa `stretch`. Dentro de una lista la altura no está
+          // acotada, así que `stretch` pediría altura infinita y la pantalla se
+          // queda en blanco en cuanto hay un video. IntrinsicHeight acota el
+          // Row a lo que mide su contenido.
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: 80,
+                  color: video.color,
+                  alignment: Alignment.center,
+                  child: Text(video.emoji, style: const TextStyle(fontSize: 28)),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          video.title,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary, height: 1.3),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text('${video.author} · ${video.project}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(Icons.access_time, size: 10, color: AppColors.textMuted),
+                            const SizedBox(width: 3),
+                            Text(video.duration, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.lock_outline, size: 10, color: AppColors.textMuted),
+                            const SizedBox(width: 3),
+                            Text(video.access, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

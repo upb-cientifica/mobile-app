@@ -95,8 +95,19 @@ class ProfileScreen extends StatelessWidget {
                         style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontFamily: monoFontFamily)),
                   ],
                   const SizedBox(height: 8),
-                  Text('Cuota: ${formatBytes(u?.usoBytes ?? 0)} / ${formatBytes(u?.cuotaBytes ?? 0)}',
-                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  // El uso real lo lleva el Home compartido, que es quien
+                  // guarda los archivos; el contador del directorio no se
+                  // actualiza con cada subida y mostraría 0 siempre.
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: context.read<AuthController>().api.archivos.home(),
+                    builder: (context, snap) {
+                      final home = snap.data;
+                      final usado = (home?['usadoBytes'] as num?)?.toInt() ?? u?.usoBytes ?? 0;
+                      final cuota = (home?['cuotaBytes'] as num?)?.toInt() ?? u?.cuotaBytes ?? 0;
+                      return Text('Cuota: ${formatBytes(usado)} / ${formatBytes(cuota)}',
+                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary));
+                    },
+                  ),
                 ],
               ),
             ),
@@ -133,12 +144,16 @@ class ProfileScreen extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(color: AppColors.successLight, borderRadius: BorderRadius.circular(AppRadius.md)),
+            // Decía "Copias de seguridad protegidas mediante cifrado GPG". El
+            // cifrado de las copias está en el plan del proyecto pero todavía no
+            // existe, y anunciarlo aquí le da al usuario una garantía falsa
+            // sobre sus datos. Se enuncia lo que el sistema sí hace hoy.
             child: const Row(
               children: [
-                Icon(Icons.lock_outline, size: 16, color: AppColors.success),
+                Icon(Icons.verified_user_outlined, size: 16, color: AppColors.success),
                 SizedBox(width: 10),
                 Expanded(
-                  child: Text('Copias de seguridad protegidas mediante cifrado GPG',
+                  child: Text('Cada servicio verifica tu token firmado por separado',
                       style: TextStyle(fontSize: 12, color: AppColors.success, fontWeight: FontWeight.w500)),
                 ),
               ],
