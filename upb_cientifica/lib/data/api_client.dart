@@ -105,11 +105,11 @@ class ApiClient {
   Future<String> urlConToken(String path, {Map<String, dynamic>? query}) async =>
       urlCon(path, await _tokens.accessToken, query: query);
 
-  Uri _uri(String path, Map<String, dynamic>? query) {
+  Uri _uri(String path, Map<String, dynamic>? query, {bool conservarVacios = false}) {
     final base = Uri.parse(Env.busUrl);
     final q = <String, String>{};
     query?.forEach((k, v) {
-      if (v != null && '$v'.isNotEmpty) q[k] = '$v';
+      if (v != null && (conservarVacios || '$v'.isNotEmpty)) q[k] = '$v';
     });
     return base.replace(
       path: '${base.path}$path',
@@ -124,7 +124,8 @@ class ApiClient {
     Object? body,
     bool retry = true,
   }) async {
-    final uri = _uri(path, query);
+    // PATCH conserva cadenas vacías para permitir borrar campos.
+    final uri = _uri(path, query, conservarVacios: method == 'PATCH');
     final headers = <String, String>{'accept': 'application/json'};
     final access = await _tokens.accessToken;
     if (access != null) headers['authorization'] = 'Bearer $access';

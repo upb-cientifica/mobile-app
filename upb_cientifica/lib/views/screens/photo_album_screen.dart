@@ -3,215 +3,380 @@ import 'package:provider/provider.dart';
 
 import '../../controllers/auth_controller.dart';
 import '../../controllers/photo_album_controller.dart';
-import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_theme.dart';
+import '../../data/api_exception.dart';
+import '../../data/servicios/fotos.dart';
 import '../../models/photo_models.dart';
 import '../widgets/async_view.dart';
-import '../widgets/common_widgets.dart';
+import 'album_share_sheet.dart';
+import 'slideshow_screen.dart';
 
 /// Álbum de fotos, conectado al servicio de Álbum a través del bus.
 class PhotoAlbumScreen extends StatelessWidget {
   const PhotoAlbumScreen({super.key});
-
   @override
-  Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (ctx) => PhotoAlbumController(ctx.read<AuthController>().api),
-      child: const _PhotoAlbumView(),
-    );
-  }
+  Widget build(BuildContext context) => ChangeNotifierProvider(
+    create: (ctx) => PhotoAlbumController(ctx.read<AuthController>().api),
+    child: const _PhotoAlbumView(),
+  );
 }
 
 class _PhotoAlbumView extends StatelessWidget {
   const _PhotoAlbumView();
-
   @override
   Widget build(BuildContext context) {
-    final controller = context.watch<PhotoAlbumController>();
-
+    final controlador = context.watch<PhotoAlbumController>();
+    final album = controlador.albumSeleccionado;
     return Column(
       children: [
-        Container(
-          color: AppColors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Container(
-            height: 38,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(AppRadius.round)),
-            child: const Row(
-              children: [
-                Icon(Icons.search, size: 16, color: AppColors.textSecondary),
-                SizedBox(width: 8),
-                Text('Buscar imágenes…', style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
-              ],
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            onChanged: controlador.buscar,
+            decoration: const InputDecoration(
+              hintText: 'Buscar imágenes…',
+              prefixIcon: Icon(Icons.search),
             ),
           ),
         ),
-        UnderlineTabs(options: photoTabs, selected: controller.tab, onSelected: controller.setTab),
-        Expanded(
-          child: AsyncView(
-            loading: controller.loading,
-            error: controller.error,
-            loadedOnce: controller.loadedOnce,
-            onRetry: controller.load,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: controller.tab == 'Álbumes' ? const _AlbumsGrid() : const _PhotosGrid(),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _AlbumsGrid extends StatelessWidget {
-  const _AlbumsGrid();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Mis álbumes', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-            ElevatedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.add, size: 12),
-              label: const Text('Crear', style: TextStyle(fontSize: 12)),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 32),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.round)),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.3,
-          children: [
-            for (final album in context.watch<PhotoAlbumController>().albums)
-              Container(
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(AppRadius.lg), boxShadow: cardShadow),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      height: 80,
-                      width: double.infinity,
-                      color: album.color,
-                      alignment: Alignment.center,
-                      child: const Text('🔬', style: TextStyle(fontSize: 28)),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(album.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 2),
-                          Text('${album.count} fotos', style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _PhotosGrid extends StatelessWidget {
-  const _PhotosGrid();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Recientes', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-            TextButton(
-              onPressed: () {},
-              style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary, padding: EdgeInsets.zero, minimumSize: Size.zero),
-              child: const Text('Ordenar por fecha ↓', style: TextStyle(fontSize: 12)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Builder(builder: (context) {
-          final photos = context.watch<PhotoAlbumController>().photos;
-          if (photos.isEmpty) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(child: Text('Sin fotografías', style: TextStyle(color: AppColors.textSecondary))),
-            );
-          }
-          return GridView.count(
-            crossAxisCount: 3,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 3,
-            crossAxisSpacing: 3,
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
             children: [
-              for (final photo in photos)
-                Stack(
-                  children: [
-                    // El color de relleno se ve mientras la miniatura viaja, y
-                    // se queda si el servicio no la pudo entregar.
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(color: photo.swatch, borderRadius: BorderRadius.circular(4)),
-                      ),
-                    ),
-                    if (photo.thumbnailUrl.isNotEmpty)
-                      Positioned.fill(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: Image.network(
-                            photo.thumbnailUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                            frameBuilder: (_, child, frame, sincrono) => AnimatedOpacity(
-                              opacity: frame == null && !sincrono ? 0 : 1,
-                              duration: const Duration(milliseconds: 200),
-                              child: child,
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (photo.favorite)
-                      const Positioned(
-                        top: 4, right: 4,
-                        child: Icon(Icons.favorite, size: 14, color: AppColors.error),
-                      ),
-                  ],
+              ChoiceChip(
+                label: const Text('Todas'),
+                selected: controlador.albumId == null,
+                onSelected: (_) => controlador.seleccionarAlbum(null),
+              ),
+              for (final album in controlador.albums)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: ChoiceChip(
+                    label: Text('${album.name} (${album.count})'),
+                    selected: controlador.albumId == album.id,
+                    onSelected: (_) => controlador.seleccionarAlbum(album.id),
+                  ),
                 ),
             ],
-          );
-        }),
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: () {},
-          icon: const Icon(Icons.share_outlined, size: 14),
-          label: const Text('Compartir selección'),
-          style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: DropdownButton<String>(
+                  isExpanded: true,
+                  value: controlador.etiqueta ?? '',
+                  items: [
+                    const DropdownMenuItem(
+                      value: '',
+                      child: Text('Todas las etiquetas'),
+                    ),
+                    for (final etiqueta in {
+                      ...controlador.etiquetas,
+                      if (controlador.etiqueta != null) controlador.etiqueta!,
+                    })
+                      DropdownMenuItem(value: etiqueta, child: Text(etiqueta)),
+                  ],
+                  onChanged: (valor) => controlador.seleccionarEtiqueta(
+                    valor == '' ? null : valor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilterChip(
+                label: const Text('Favoritos'),
+                selected: controlador.tab == 'Favoritos',
+                onSelected: (valor) =>
+                    controlador.setTab(valor ? 'Favoritos' : 'Recientes'),
+              ),
+            ],
+          ),
+        ),
+        Wrap(
+          spacing: 8,
+          children: [
+            if (album != null && album.puedeCompartir)
+              TextButton.icon(
+                icon: const Icon(Icons.share_outlined),
+                label: const Text('Compartir álbum'),
+                onPressed: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) =>
+                      AlbumShareSheet(album: album, controller: controlador),
+                ),
+              ),
+            TextButton.icon(
+              icon: const Icon(Icons.slideshow),
+              label: const Text('Presentación'),
+              onPressed: controlador.photos.isEmpty || controlador.loading
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            SlideshowScreen(fotos: List.of(controlador.photos)),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+        Expanded(
+          child: AsyncView(
+            loading: controlador.loading,
+            error: controlador.error,
+            loadedOnce: controlador.loadedOnce,
+            onRetry: controlador.load,
+            child: controlador.photos.isEmpty
+                ? const Center(child: Text('Sin fotografías'))
+                : GridView.builder(
+                    padding: const EdgeInsets.all(16),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 320,
+                          mainAxisExtent: 270,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                        ),
+                    itemCount: controlador.photos.length,
+                    itemBuilder: (context, indice) {
+                      final foto = controlador.photos[indice];
+                      void editar() => showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (_) =>
+                            _EditarFoto(foto: foto, controlador: controlador),
+                      );
+                      return Card(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerLow,
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onLongPress: editar,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: Image.network(
+                                  foto.thumbnailUrl,
+                                  fit: BoxFit.cover,
+                                  loadingBuilder: (_, imagen, progreso) =>
+                                      progreso == null
+                                      ? imagen
+                                      : const Center(
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                  errorBuilder: (_, _, _) => const Center(
+                                    child: Icon(Icons.broken_image_outlined),
+                                  ),
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  const SizedBox(width: 8),
+                                  if (foto.favorite)
+                                    Icon(
+                                      Icons.favorite,
+                                      size: 18,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
+                                  Expanded(
+                                    child: Text(
+                                      foto.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  PopupMenuButton<String>(
+                                    tooltip: 'Opciones de imagen',
+                                    onSelected: (_) => editar(),
+                                    itemBuilder: (_) => [
+                                      const PopupMenuItem(
+                                        value: 'editar',
+                                        child: Text('Editar detalles'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              SizedBox(
+                                height: 44,
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      for (final etiqueta in foto.tags)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: 4,
+                                          ),
+                                          child: Chip(label: Text(etiqueta)),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ),
       ],
     );
   }
+}
+
+class _EditarFoto extends StatefulWidget {
+  const _EditarFoto({required this.foto, required this.controlador});
+  final Photo foto;
+  final PhotoAlbumController controlador;
+  @override
+  State<_EditarFoto> createState() => _EditarFotoState();
+}
+
+class _EditarFotoState extends State<_EditarFoto> {
+  late final _titulo = TextEditingController(text: widget.foto.title);
+  late final _descripcion = TextEditingController(
+    text: widget.foto.descripcion,
+  );
+  final _entrada = TextEditingController();
+  late List<String> _etiquetas = analizarEtiquetas(widget.foto.tags.join(','));
+  bool _guardando = false;
+  String? _error;
+
+  void _agregar({bool completo = true}) {
+    final texto = _entrada.text;
+    final corte = completo ? texto.length : texto.lastIndexOf(',');
+    if (corte < 0) return;
+    setState(() {
+      _etiquetas = analizarEtiquetas(
+        [..._etiquetas, texto.substring(0, corte)].join(','),
+      );
+      _entrada.text = completo ? '' : texto.substring(corte + 1);
+      _entrada.selection = TextSelection.collapsed(
+        offset: _entrada.text.length,
+      );
+    });
+  }
+
+  Future<void> _guardar() async {
+    _agregar();
+    setState(() {
+      _guardando = true;
+      _error = null;
+    });
+    try {
+      await widget.controlador.actualizar(
+        widget.foto,
+        _titulo.text.trim(),
+        _descripcion.text.trim(),
+        _etiquetas,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e is ApiException
+              ? e.mensaje
+              : 'No se pudieron guardar los detalles.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _guardando = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _titulo.dispose();
+    _descripcion.dispose();
+    _entrada.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        MediaQuery.viewInsetsOf(context).bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Editar detalles',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _titulo,
+            enabled: !_guardando,
+            decoration: const InputDecoration(labelText: 'Título'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descripcion,
+            enabled: !_guardando,
+            minLines: 3,
+            maxLines: 5,
+            decoration: const InputDecoration(labelText: 'Descripción'),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final etiqueta in _etiquetas)
+                InputChip(
+                  label: Text(etiqueta),
+                  onDeleted: _guardando
+                      ? null
+                      : () => setState(() {
+                          _etiquetas.remove(etiqueta);
+                        }),
+                ),
+            ],
+          ),
+          TextField(
+            controller: _entrada,
+            enabled: !_guardando,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(
+              labelText: 'Etiquetas',
+              hintText: 'Escribe y pulsa listo o coma',
+            ),
+            onChanged: (_) => _agregar(completo: false),
+            onSubmitted: (_) => _agregar(),
+          ),
+          if (_error != null)
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _guardando ? null : _guardar,
+            child: Text(_guardando ? 'Guardando…' : 'Guardar'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
