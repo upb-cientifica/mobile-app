@@ -1,42 +1,115 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
-import '../data/api.dart';
-import '../models/sync_item.dart';
-import 'async_state.dart';
+import '../data/sincronizacion/decisiones.dart';
+import 'network_controller.dart';
 
-/// Centro de sincronización.
-///
-/// El servicio transfiere por **gRPC** con el cliente de escritorio y publica
-/// una cara REST de consulta, que es la que media el bus. Desde el teléfono se
-/// **observa** el estado y se **resuelven conflictos**; empujar bloques es cosa
-/// del cliente de escritorio.
-class SyncController extends ChangeNotifier with AsyncState {
-  SyncController(this._api) {
+/// Presenta la carpeta local, las transferencias y los conflictos del servicio.
+class SyncController extends ChangeNotifier {
+  SyncController(this.red) {
+    red.addListener(_cambio);
     load();
   }
+  final NetworkController red;
+  List<String> archivos = [];
+  List<Map<String, dynamic>> conflictos = [];
+  String? error;
+  bool loading = false;
+  bool _disposed = false;
+  DateTime? _ultima;
+  void _avisar() {
+    if (!_disposed) notifyListeners();
+  }
 
-  final Api _api;
+  void _cambio() {
+    if (_ultima != red.lastAutoSync) {
+      _ultima = red.lastAutoSync;
+      load();
+    }
+    _avisar();
+  }
 
-  SyncState? state;
-  List<Map<String, dynamic>> conflictos = const [];
+  Future<void> load() async {
+    if (loading) return;
+    loading = true;
+    error = null;
+    _avisar();
+    try {
+      archivos = await red.motor.archivos();
+      if (red.enRedInterna) conflictos = await red.auth.api.sync.conflictos();
+    } catch (e) {
+      error = '$e';
+    } finally {
+      loading = false;
+      _avisar();
+    }
+  }
 
-  List<SyncItem> get items => state?.items ?? const [];
-  bool get hayConflictos => conflictos.isNotEmpty;
+  Future<void> preferencia(bool guardarTodo) async {
+    try {
+      await red.motor.preferencia(!guardarTodo);
+    } catch (e) {
+      error = '$e';
+    }
+    _avisar();
+  }
 
-  Future<void> load() => run(() async {
-        final j = await _api.sync.estado();
-        state = SyncState.fromApi(j);
-        conflictos = (j['conflictos'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
-      });
+  Future<void> agregar() async {
+    try {
+      final seleccion = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+      );
+      if (seleccion == null) return;
+      await red.motor.iniciar();
+      for (final f in seleccion.files) {
+        if (f.path == null || !rutaSegura(f.name) || f.name.contains('/')) {
+          throw StateError('No se puede leer ${f.name}');
+        }
+        var destino = File('${red.motor.carpeta.path}/${f.name}');
+        var n = 1;
+        while (await destino.exists()) {
+          destino = File('${red.motor.carpeta.path}/(${n++}) ${f.name}');
+        }
+        final temporal = await (await getTemporaryDirectory()).createTemp(
+          'importar-sync-',
+        );
+        try {
+          final copia = await File(f.path!).copy('${temporal.path}/contenido');
+          await copia.rename(destino.path);
+        } finally {
+          await temporal.delete(recursive: true);
+        }
+      }
+      await load();
+      await red.sincronizar();
+    } catch (e) {
+      error = '$e';
+      _avisar();
+    }
+  }
 
-  /// Resuelve un conflicto de versión.
-  ///
-  /// [estrategia] es `local`, `servidor` o `ambos`: quedarse con lo del
-  /// dispositivo, con lo del servidor, o conservar las dos copias.
-  Future<void> resolver(String conflictoId, String estrategia) async {
-    await _api.sync.resolver(conflictoId, estrategia);
-    await load();
+  Future<void> resolver(
+    Map<String, dynamic> conflicto,
+    String estrategia,
+  ) async {
+    try {
+      await red.auth.api.sync.resolver('${conflicto['id']}', estrategia);
+      await red.motor.aceptarResolucion('${conflicto['ruta']}');
+      await red.sincronizar();
+      await load();
+    } catch (e) {
+      error = '$e';
+      _avisar();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    red.removeListener(_cambio);
+    super.dispose();
   }
 }

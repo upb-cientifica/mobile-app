@@ -1,71 +1,104 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
-import '../data/api.dart';
+import '../data/sincronizacion/motor.dart';
+import 'auth_controller.dart';
 
-/// Observa la conectividad y, al entrar en Wi-Fi, vuelve a leer el estado de
-/// sincronización — el requisito del enunciado: «sincronizar una vez alcance
-/// una conexión WIFI a la red local».
-///
-/// Lo que el teléfono hace al llegar a la red es **releer**, no empujar: la
-/// transferencia por bloques es del cliente gRPC de escritorio, y el bus no
-/// media gRPC. Lo que sí resuelve el móvil, y es lo valioso de tenerlo encima,
-/// son los conflictos que hayan aparecido.
-class NetworkController extends ChangeNotifier {
-  NetworkController(this._api);
-
-  final Api _api;
+/// Comprueba la red interna y sincroniza mientras la aplicación esté activa.
+class NetworkController extends ChangeNotifier with WidgetsBindingObserver {
+  NetworkController(this.auth) : motor = MotorSincronizacion(auth.api.sync);
+  final AuthController auth;
+  final MotorSincronizacion motor;
   final Connectivity _connectivity = Connectivity();
   StreamSubscription<List<ConnectivityResult>>? _sub;
-
-  bool _onWifi = false;
-  bool get onWifi => _onWifi;
-
-  DateTime? _lastAutoSync;
-  DateTime? get lastAutoSync => _lastAutoSync;
-
-  /// Conflictos pendientes vistos en la última lectura automática.
-  int conflictosPendientes = 0;
-
-  /// Se invoca tras una lectura automática exitosa (para refrescar vistas).
-  void Function()? onAutoSynced;
+  Timer? _timer;
+  bool onWifi = false;
+  bool enRedInterna = false;
+  bool _red = false, _activo = true, _ocupado = false, _disposed = false;
+  bool get ocupado => _ocupado;
+  ResumenSync? resumen;
+  DateTime? lastAutoSync;
+  int _generacion = 0;
+  bool get _habilitado =>
+      !_disposed && _activo && _red && auth.stage == AuthStage.conectado;
 
   Future<void> start() async {
-    _apply(await _connectivity.checkConnectivity());
+    _activo =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    auth.addListener(_sesion);
+    _timer = Timer.periodic(const Duration(minutes: 2), (_) => sincronizar());
     _sub = _connectivity.onConnectivityChanged.listen(_apply);
+    try {
+      _apply(await _connectivity.checkConnectivity());
+    } catch (_) {
+      /* sin red */
+    }
+  }
+
+  void _avisar() {
+    if (!_disposed) notifyListeners();
+  }
+
+  void _sesion() {
+    if (auth.stage != AuthStage.conectado) {
+      _generacion++;
+      enRedInterna = false;
+    }
+    _avisar();
+    if (_habilitado) unawaited(sincronizar());
   }
 
   void _apply(List<ConnectivityResult> results) {
-    final wifi = results.contains(ConnectivityResult.wifi);
-    final changedToWifi = wifi && !_onWifi;
-    _onWifi = wifi;
-    notifyListeners();
-    if (changedToWifi) _autoSync();
+    if (_disposed) return;
+    _generacion++;
+    onWifi = results.contains(ConnectivityResult.wifi);
+    _red = onWifi || results.contains(ConnectivityResult.ethernet);
+    enRedInterna = false;
+    _avisar();
+    unawaited(sincronizar());
   }
 
-  Future<void> _autoSync() async {
-    // Evita repetir si ya se leyó hace menos de 2 minutos.
-    if (_lastAutoSync != null &&
-        DateTime.now().difference(_lastAutoSync!) < const Duration(minutes: 2)) {
-      return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _activo = state == AppLifecycleState.resumed;
+    if (!_activo) _generacion++;
+    if (_activo) {
+      _connectivity.checkConnectivity().then(_apply).catchError((Object _) {});
     }
+  }
+
+  Future<void> sincronizar() async {
+    if (!_habilitado || _ocupado) return;
+    _ocupado = true;
+    final generacion = _generacion;
+    bool vigente() => _habilitado && generacion == _generacion;
+    _avisar();
     try {
-      final estado = await _api.sync.estado();
-      conflictosPendientes = (estado['pendientesTotal'] as num?)?.toInt() ?? 0;
-      _lastAutoSync = DateTime.now();
-      onAutoSynced?.call();
-      notifyListeners();
+      await auth.api.sync.comprobarRed();
+      if (!vigente()) return;
+      enRedInterna = true;
+      _avisar();
+      resumen = await motor.sincronizar(vigente: vigente);
+      lastAutoSync = DateTime.now();
     } catch (_) {
-      // Wi-Fi que no es la del CCA, o el bus fuera de alcance: se reintenta en
-      // el próximo cambio de red.
+      enRedInterna = false;
+    } finally {
+      _ocupado = false;
+      _avisar();
     }
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _timer?.cancel();
     _sub?.cancel();
+    auth.removeListener(_sesion);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }

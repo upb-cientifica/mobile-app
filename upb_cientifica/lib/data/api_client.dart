@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -20,8 +21,8 @@ import 'token_store.dart';
 ///   encuentra el mensaje exacto en la bitácora del bus.
 class ApiClient {
   ApiClient({TokenStore? tokenStore, http.Client? httpClient})
-      : _tokens = tokenStore ?? TokenStore(),
-        _http = httpClient ?? http.Client();
+    : _tokens = tokenStore ?? TokenStore(),
+      _http = httpClient ?? http.Client();
 
   final TokenStore _tokens;
   final http.Client _http;
@@ -35,14 +36,23 @@ class ApiClient {
   /// El bus pasa los parámetros de consulta al mediador, que los convierte en
   /// elementos del sobre SOAP o en argumentos de la invocación RMI. Por eso la
   /// mayoría de las escrituras viajan en `query` y no en el cuerpo.
-  Future<dynamic> post(String path, {Map<String, dynamic>? query, Object? body}) =>
-      _send('POST', path, query: query, body: body);
+  Future<dynamic> post(
+    String path, {
+    Map<String, dynamic>? query,
+    Object? body,
+  }) => _send('POST', path, query: query, body: body);
 
-  Future<dynamic> patch(String path, {Map<String, dynamic>? query, Object? body}) =>
-      _send('PATCH', path, query: query, body: body);
+  Future<dynamic> patch(
+    String path, {
+    Map<String, dynamic>? query,
+    Object? body,
+  }) => _send('PATCH', path, query: query, body: body);
 
-  Future<dynamic> put(String path, {Map<String, dynamic>? query, Object? body}) =>
-      _send('PUT', path, query: query, body: body);
+  Future<dynamic> put(
+    String path, {
+    Map<String, dynamic>? query,
+    Object? body,
+  }) => _send('PUT', path, query: query, body: body);
 
   Future<dynamic> delete(String path, {Map<String, dynamic>? query}) =>
       _send('DELETE', path, query: query);
@@ -82,6 +92,59 @@ class ApiClient {
     return _decode(res);
   }
 
+  /// Transfiere desde disco y reabre el archivo si es necesario renovar sesión.
+  Future<dynamic> postFile(
+    String path,
+    File archivo, {
+    required Map<String, dynamic> query,
+    bool retry = true,
+  }) async {
+    final req = http.StreamedRequest('POST', _uri(path, query))
+      ..headers.addAll(await authHeaders)
+      ..headers['content-type'] = 'application/octet-stream'
+      ..contentLength = await archivo.length();
+    final respuesta = _http.send(req);
+    final escritura = archivo.openRead().pipe(req.sink);
+    final resultados = await Future.wait([respuesta, escritura]);
+    final res = await http.Response.fromStream(
+      resultados.first as http.StreamedResponse,
+    );
+    if (res.statusCode == 401 && retry) {
+      if (await _refresh()) {
+        return postFile(path, archivo, query: query, retry: false);
+      }
+      onSessionExpired?.call();
+    }
+    return _decode(res);
+  }
+
+  /// Descarga a disco sin reunir el contenido completo en memoria.
+  Future<void> getFile(
+    String path,
+    File destino, {
+    required Map<String, dynamic> query,
+    bool retry = true,
+  }) async {
+    final req = http.Request('GET', _uri(path, query))
+      ..headers.addAll(await authHeaders);
+    final res = await _http.send(req).timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401 && retry) {
+      await res.stream.drain<void>();
+      if (await _refresh()) {
+        return getFile(path, destino, query: query, retry: false);
+      }
+      onSessionExpired?.call();
+      throw ApiException('La sesión expiró.', status: 401);
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      _decode(await http.Response.fromStream(res));
+      return;
+    }
+    await res.stream
+        .timeout(const Duration(seconds: 60))
+        .pipe(destino.openWrite());
+  }
+
   /// Encabezados de autenticación para widgets que descargan por su cuenta,
   /// como `Image.network`.
   Future<Map<String, String>> get authHeaders async {
@@ -102,10 +165,16 @@ class ApiClient {
       _uri(path, {...?query, 'token': ?token}).toString();
 
   /// Igual que [urlCon], leyendo el token del almacén seguro.
-  Future<String> urlConToken(String path, {Map<String, dynamic>? query}) async =>
-      urlCon(path, await _tokens.accessToken, query: query);
+  Future<String> urlConToken(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async => urlCon(path, await _tokens.accessToken, query: query);
 
-  Uri _uri(String path, Map<String, dynamic>? query, {bool conservarVacios = false}) {
+  Uri _uri(
+    String path,
+    Map<String, dynamic>? query, {
+    bool conservarVacios = false,
+  }) {
     final base = Uri.parse(Env.busUrl);
     final q = <String, String>{};
     query?.forEach((k, v) {
@@ -162,7 +231,9 @@ class ApiClient {
     if (texto.isNotEmpty) {
       try {
         json = jsonDecode(texto);
-      } catch (_) {/* respuesta no-JSON */}
+      } catch (_) {
+        /* respuesta no-JSON */
+      }
     }
 
     if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -191,7 +262,9 @@ class ApiClient {
     try {
       final res = await _http
           .post(
-            _uri('/${Servicios.usuarios}/renovarToken', {'refreshToken': refresh}),
+            _uri('/${Servicios.usuarios}/renovarToken', {
+              'refreshToken': refresh,
+            }),
             headers: {'accept': 'application/json'},
           )
           .timeout(const Duration(seconds: 15));

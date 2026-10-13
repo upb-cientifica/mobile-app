@@ -39,6 +39,8 @@ dependencies:
   provider: ^6.1.2
 
   # Capa de datos: cliente HTTP hacia el Service Bus
+  crypto: ^3.0.6
+  path_provider: ^2.1.5
   http: ^1.2.2
   # Token de sesión (access + refresh) en almacenamiento seguro
   flutter_secure_storage: ^9.2.2

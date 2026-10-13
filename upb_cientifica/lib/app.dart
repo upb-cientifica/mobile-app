@@ -39,7 +39,7 @@ class UpbCientificaApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => NavigationController()),
         ChangeNotifierProxyProvider<AuthController, NetworkController>(
           create: (ctx) => NetworkController(
-              Provider.of<AuthController>(ctx, listen: false).api)
+              Provider.of<AuthController>(ctx, listen: false))
             ..start(),
           update: (_, _, prev) => prev!,
         ),
