@@ -66,5 +66,20 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!--
+	  El sistema de UPB-CIENTÍFICA vive en la red del CCA y habla HTTP plano:
+	  no hay TLS en ningún servicio. NSAllowsLocalNetworking levanta la
+	  restricción de App Transport Security sólo para direcciones de la red
+	  local, no para Internet. Cuando el bus se publique con TLS, esto se borra.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- El disparo de sincronización al llegar a la red del CCA necesita saber
+	     a qué red está conectado el teléfono. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>UPB Científica se conecta al bus de servicios del CCA en la red local de la universidad.</string>
 </dict>
 </plist>

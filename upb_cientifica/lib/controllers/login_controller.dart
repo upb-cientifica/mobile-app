@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// Controlador de la pantalla de inicio de sesión.
 class LoginController extends ChangeNotifier {
   final TextEditingController emailController =
-      TextEditingController(text: 'stiven.garcia@upb.edu.co');
+      TextEditingController(text: 'stiven.pabon@upb.edu.co');
   final TextEditingController passwordController = TextEditingController();
 
   bool _showPassword = false;

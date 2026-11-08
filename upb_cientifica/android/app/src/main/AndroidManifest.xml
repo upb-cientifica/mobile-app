@@ -1,7 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      usesCleartextTraffic: el sistema de UPB-CIENTÍFICA vive en la red del CCA
+      y habla HTTP plano. No hay TLS en ningún servicio, y emitir certificados
+      para máquinas de la red interna del laboratorio queda fuera del alcance
+      del proyecto. Desde Android 9 el tráfico en claro está prohibido salvo
+      que se declare. Cuando el bus se publique con TLS, esta línea se borra.
+    -->
     <application
         android:label="upb_cientifica"
         android:name="${applicationName}"
+        android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

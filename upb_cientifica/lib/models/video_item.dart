@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../core/utils/date_utils.dart';
+
 class VideoItem {
   const VideoItem({
+    required this.id,
     required this.title,
     required this.project,
     required this.author,
@@ -12,6 +15,7 @@ class VideoItem {
     required this.emoji,
   });
 
+  final String id;
   final String title;
   final String project;
   final String author;
@@ -20,47 +24,24 @@ class VideoItem {
   final String date;
   final Color color;
   final String emoji;
-}
 
-const List<VideoItem> mockVideos = [
-  VideoItem(
-    title: 'Simulación de dinámica molecular: Proteínas de membrana',
-    project: 'Bioinformática UPB',
-    author: 'Dr. M. López',
-    duration: '48:32',
-    access: 'Grupo',
-    date: '28 jul 2025',
-    color: Color(0xFFE8F0FE),
-    emoji: '🧬',
-  ),
-  VideoItem(
-    title: 'Análisis de datos climáticos con Python y Dask',
-    project: 'Clima 2025',
-    author: 'S. García',
-    duration: '1:12:04',
-    access: 'Público',
-    date: '25 jul 2025',
-    color: Color(0xFFE6F4EA),
-    emoji: '🌍',
-  ),
-  VideoItem(
-    title: 'Introducción a MPI: Paralelización científica',
-    project: 'HPC Education',
-    author: 'Ing. C. Reyes',
-    duration: '2:03:17',
-    access: 'Institucional',
-    date: '20 jul 2025',
-    color: Color(0xFFF3E5F5),
-    emoji: '💻',
-  ),
-  VideoItem(
-    title: 'Resultados: Genómica comparativa de hongos patógenos',
-    project: 'Genómica UPB',
-    author: 'Dra. P. Herrera',
-    duration: '34:58',
-    access: 'Restringido',
-    date: '15 jul 2025',
-    color: Color(0xFFFDE8E7),
-    emoji: '🔬',
-  ),
-];
+  factory VideoItem.fromApi(Map<String, dynamic> j, int index) {
+    const swatches = [Color(0xFFE8F0FE), Color(0xFFE6F4EA), Color(0xFFF3E5F5), Color(0xFFFDE8E7)];
+    const emojis = ['🧬', '🌍', '💻', '🔬'];
+    return VideoItem(
+      id: '${j['id']}',
+      title: j['titulo'] as String? ?? '',
+      project: j['proyecto'] as String? ?? 'General',
+      author: j['autor'] as String? ?? '',
+      duration: formatDuration((j['duracionSeg'] as num?)?.toInt() ?? 0),
+      access: switch (j['nivelAcceso']) {
+        'publico' => 'Público',
+        'privado' => 'Restringido',
+        _ => 'Grupo',
+      },
+      date: relativeSpanish(j['publicadoEn'] as String?),
+      color: swatches[index % swatches.length],
+      emoji: emojis[index % emojis.length],
+    );
+  }
+}

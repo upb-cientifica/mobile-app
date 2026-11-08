@@ -1,210 +1,165 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../controllers/network_controller.dart';
+import '../../controllers/sync_controller.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_theme.dart';
-import '../../models/sync_item.dart';
 import '../widgets/common_widgets.dart';
 
-class _SyncOption {
-  const _SyncOption(this.icon, this.label, this.sub, {this.toggle = false});
-
-  final IconData icon;
-  final String label;
-  final String sub;
-  final bool toggle;
-}
-
-const List<_SyncOption> _options = [
-  _SyncOption(Icons.calendar_today_outlined, 'Programar horario', 'Cada día a las 11:00 p. m.'),
-  _SyncOption(Icons.folder_open_outlined, 'Elegir carpetas', '3 carpetas seleccionadas'),
-  _SyncOption(Icons.wifi, 'Solo por Wi-Fi', 'Activo', toggle: true),
-];
-
-/// Centro de sincronización, equivalente a screens/SyncScreen.tsx.
 class SyncScreen extends StatelessWidget {
   const SyncScreen({super.key});
+  @override
+  Widget build(BuildContext context) => ChangeNotifierProvider(
+    create: (ctx) => SyncController(ctx.read<NetworkController>()),
+    child: const _SyncView(),
+  );
+}
 
+class _SyncView extends StatelessWidget {
+  const _SyncView();
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        Container(
-          color: AppColors.white,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    final c = context.watch<SyncController>();
+    final red = context.watch<NetworkController>();
+    return RefreshIndicator(
+      onRefresh: c.load,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          AppCard(
+            backgroundColor: Theme.of(context).cardColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    StatusDot(
+                      color: red.enRedInterna
+                          ? AppColors.success
+                          : AppColors.textMuted,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      red.enRedInterna
+                          ? 'En la red de la UPB'
+                          : 'Fuera de la red',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (red.ocupado) const LinearProgressIndicator(),
+                if (red.resumen != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Última pasada: ${red.resumen}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  for (final fallo in red.resumen!.fallos)
+                    Text(
+                      fallo,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.error,
+                      ),
+                    ),
+                ],
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Guardar en este teléfono una copia de todo',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  value: !red.motor.sinCopiaLocal,
+                  onChanged: red.ocupado || c.loading ? null : c.preferencia,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+              OutlinedButton.icon(
+                onPressed: red.ocupado || c.loading ? null : c.agregar,
+                icon: const Icon(Icons.add),
+                label: const Text('Agregar archivos'),
+              ),
+              ElevatedButton.icon(
+                onPressed: red.ocupado ? null : red.sincronizar,
+                icon: const Icon(Icons.sync),
+                label: const Text('Sincronizar ahora'),
+              ),
+            ],
+          ),
+          if (c.error != null)
+            Text(c.error!, style: const TextStyle(color: AppColors.error)),
+          const SizedBox(height: 20),
+          const SectionLabel('Mi unidad › Sincronizados'),
+          const SizedBox(height: 10),
+          if (c.archivos.isEmpty)
+            const Text('No hay archivos en este teléfono.'),
+          for (final ruta in c.archivos)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: AppCard(
+                backgroundColor: Theme.of(context).cardColor,
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.insert_drive_file_outlined, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(ruta, style: const TextStyle(fontSize: 13)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 20),
+          const SectionLabel('Conflictos'),
+          const SizedBox(height: 10),
+          if (c.conflictos.isEmpty) const Text('Sin conflictos registrados.'),
+          for (final k in c.conflictos)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: AppCard(
+                backgroundColor: Theme.of(context).cardColor,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${k['ruta'] ?? k['nombre']}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      'Resolución: ${k['resuelto'] == true ? k['estrategia'] ?? 'Resuelto' : 'Pendiente'}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    if (k['resuelto'] != true &&
+                        (k['resolucion'] == null ||
+                            k['resolucion'] == '' ||
+                            k['resolucion'] == 'PENDIENTE'))
+                      Wrap(
+                        spacing: 6,
                         children: [
-                          StatusDot(color: AppColors.success, size: 10),
-                          SizedBox(width: 8),
-                          Text('Sincronización activa', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                          for (final opcion in const [
+                            ('Dispositivo', 'local'),
+                            ('Servidor', 'servidor'),
+                            ('Ambos', 'ambos'),
+                          ])
+                            OutlinedButton(
+                              onPressed: red.ocupado || !red.enRedInterna
+                                  ? null
+                                  : () => c.resolver(k, opcion.$2),
+                              child: Text(opcion.$1),
+                            ),
                         ],
                       ),
-                      SizedBox(height: 4),
-                      Text('Última sync: hoy, 10:42 a. m.', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                    ],
-                  ),
-                  const Icon(Icons.refresh, color: AppColors.blue, size: 20),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  Text('Progreso general', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                  Text('78%', style: TextStyle(fontSize: 12, color: AppColors.blue, fontWeight: FontWeight.w600)),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const ThinProgressBar(value: 0.78, color: AppColors.blue),
-              const SizedBox(height: 14),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 3.6,
-                children: const [
-                  _MetaField('Dispositivo', 'PC-Lab-UPB-01'),
-                  _MetaField('Carpeta local', '/home/sgarcia/investigacion', mono: true),
-                  _MetaField('Repositorio', 'repo://cluster-upb/sgarcia', mono: true),
-                  _MetaField('Pendientes', '14 archivos'),
-                ],
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.refresh, size: 14),
-                  label: const Text('Sincronizar ahora'),
-                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.pause, size: 14),
-                  label: const Text('Pausar'),
-                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44), textStyle: const TextStyle(fontSize: 13)),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          color: AppColors.white,
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            children: [
-              for (var i = 0; i < _options.length; i++)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: i < _options.length - 1
-                      ? const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.divider)))
-                      : null,
-                  child: Row(
-                    children: [
-                      Icon(_options[i].icon, size: 18, color: AppColors.textSecondary),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(_options[i].label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
-                            const SizedBox(height: 2),
-                            Text(_options[i].sub, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                          ],
-                        ),
-                      ),
-                      if (_options[i].toggle) const SimpleToggle(value: true),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SectionLabel('Estado de archivos'),
-              const SizedBox(height: 10),
-              for (final item in mockSyncItems) ...[
-                _SyncTile(item: item),
-                const SizedBox(height: 6),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MetaField extends StatelessWidget {
-  const _MetaField(this.label, this.value, {this.mono = false});
-
-  final String label;
-  final String value;
-  final bool mono;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: mono ? 10 : 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textPrimary,
-            fontFamily: mono ? monoFontFamily : null,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SyncTile extends StatelessWidget {
-  const _SyncTile({required this.item});
-
-  final SyncItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = syncStatusStyles[item.status]!;
-    final isProblem = item.status == SyncStatus.conflict || item.status == SyncStatus.error;
-
-    return AppCard(
-      radius: AppRadius.md,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Icon(isProblem ? Icons.warning_amber_outlined : Icons.refresh, size: 18, color: style.color),
-          const SizedBox(width: 10),
-          Expanded(child: Text(item.name, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary))),
-          StatusPill(label: style.label, color: style.color, background: style.bg),
+            ),
         ],
       ),
     );
